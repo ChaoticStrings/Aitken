@@ -8,11 +8,11 @@ have it land on the right segment.
 
 **Status:** ready-for-agent
 
-- [ ] Tap checked first against the currently-open segment, then against
+- [x] Tap checked first against the currently-open segment, then against
       recently-closed segments within `tagLookbackMs` (default ~8s, marked
       `[CALIBRATE]`)
-- [ ] `tap_offset_ms` (how late the tap arrived) logged as its own calibration
+- [x] `tap_offset_ms` (how late the tap arrived) logged as its own calibration
       signal
-- [ ] Unmatched taps (outside the lookback window) are logged, not dropped, for
+- [x] Unmatched taps (outside the lookback window) are logged, not dropped, for
       Workbench reconciliation
-- [ ] Range-tag start/end events matched independently from point taps
+- [x] Range-tag start/end events matched independently from point taps

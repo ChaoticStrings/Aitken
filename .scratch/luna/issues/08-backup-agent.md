@@ -8,11 +8,11 @@ doesn't also cost the data.
 
 **Status:** ready-for-agent
 
-- [ ] `enqueueBackup(sessionPath)` copies a closed session bundle to the
+- [x] `enqueueBackup(sessionPath)` copies a closed session bundle to the
       SAF-granted folder
-- [ ] Backup runs after the primary write path completes, never blocking or gating
+- [x] Backup runs after the primary write path completes, never blocking or gating
       it
-- [ ] A backup failure (folder revoked, disk full, etc.) doesn't crash or block the
+- [x] A backup failure (folder revoked, disk full, etc.) doesn't crash or block the
       app
-- [ ] No data leaves the SAF-granted folder or app-private storage through any path
+- [x] No data leaves the SAF-granted folder or app-private storage through any path
       other than this one — verified no other egress exists

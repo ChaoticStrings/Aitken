@@ -8,9 +8,9 @@ into the real app lifecycle rather than existing only as standalone modules.
 
 **Status:** ready-for-agent
 
-- [ ] Session close triggers `BackupAgent.enqueueBackup` automatically
-- [ ] App periodically/opportunistically calls
+- [x] Session close triggers `BackupAgent.enqueueBackup` automatically
+- [x] App periodically/opportunistically calls
       `ClassifierConfigLoader.checkForUpdate()` outside the recording path
-- [ ] Riding with a stale or never-synced config still completes a normal session
-- [ ] End-to-end test: a closed session appears in the SAF folder without any user
+- [x] Riding with a stale or never-synced config still completes a normal session
+- [x] End-to-end test: a closed session appears in the SAF folder without any user
       action beyond ending the ride

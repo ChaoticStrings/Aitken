@@ -8,11 +8,11 @@ never stops a recording session.
 
 **Status:** ready-for-agent
 
-- [ ] `currentConfig()` returns the cached local config synchronously, never
+- [x] `currentConfig()` returns the cached local config synchronously, never
       blocking
-- [ ] `checkForUpdate()` polls the SAF folder opportunistically, off the recording
+- [x] `checkForUpdate()` polls the SAF folder opportunistically, off the recording
       path
-- [ ] A recording session proceeds normally with no config update available (stale
+- [x] A recording session proceeds normally with no config update available (stale
       config degrades gracefully, user story 22)
-- [ ] Fake `SafStorageAdapter` used to test both the update-found and
+- [x] Fake `SafStorageAdapter` used to test both the update-found and
       no-update-available paths
