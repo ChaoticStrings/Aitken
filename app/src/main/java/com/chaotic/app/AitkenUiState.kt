@@ -2,6 +2,7 @@ package com.aitken.app
 
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import com.aitken.segment.ClosedSegment
 
@@ -34,14 +35,27 @@ object AitkenUiState {
     /** Static placeholder — ticket 13 (Auto-tagging integration) wires this to a real ClassifierRunner score. */
     val confidenceLabel = mutableStateOf("—")
 
+    /**
+     * add() then removeAt(0) are two separate SnapshotStateList writes;
+     * without wrapping them in one mutable snapshot, a concurrent reader
+     * (e.g. MdGraph's Canvas draw block, running on a different thread than
+     * this is called from -- see AndroidSensorStream's HandlerThread) can
+     * observe the transient over-cap state between them. Bundling both
+     * writes into one snapshot means readers only ever see "before" or
+     * "after", never the momentary MAX+1 state in between.
+     */
     fun pushSample(vertical: Float) {
-        waveform.add(vertical)
-        while (waveform.size > MAX_WAVEFORM_SAMPLES) waveform.removeAt(0)
+        Snapshot.withMutableSnapshot {
+            waveform.add(vertical)
+            while (waveform.size > MAX_WAVEFORM_SAMPLES) waveform.removeAt(0)
+        }
     }
 
     fun pushSegment(segment: ClosedSegment) {
-        recentSegments.add(segment)
-        while (recentSegments.size > MAX_RECENT_SEGMENTS) recentSegments.removeAt(0)
+        Snapshot.withMutableSnapshot {
+            recentSegments.add(segment)
+            while (recentSegments.size > MAX_RECENT_SEGMENTS) recentSegments.removeAt(0)
+        }
     }
 
     fun reset() {

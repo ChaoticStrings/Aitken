@@ -196,12 +196,20 @@ private fun MdGraph(modifier: Modifier = Modifier, tunables: Tunables) {
                 drawLine(Color(0xFF263238), Offset(0f, yBot), Offset(width, yBot), strokeWidth = 1f)
             }
 
-            if (waveform.size > 1) {
+            // Snapshot once, up front. `waveform` is written from the sensor
+            // HandlerThread (AitkenUiState.pushSample) while this draw block
+            // runs on the render thread; reading .indices/.size/[i] as three
+            // separate live calls against the mutable list let a concurrent
+            // add()+removeAt(0) shrink it between reads, throwing
+            // IndexOutOfBoundsException at the cap boundary. Copying once
+            // here means every access below sees one consistent list.
+            val samples = waveform.toList()
+            if (samples.size > 1) {
                 val path = Path()
                 val xStep = width / (AitkenUiState.MAX_WAVEFORM_SAMPLES - 1).toFloat()
-                for (i in waveform.indices) {
-                    val x = width - (waveform.size - 1 - i) * xStep
-                    val y = (centerY - (waveform[i] - baseline) * scaleY).coerceIn(0f, height)
+                for (i in samples.indices) {
+                    val x = width - (samples.size - 1 - i) * xStep
+                    val y = (centerY - (samples[i] - baseline) * scaleY).coerceIn(0f, height)
                     if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
                 }
                 drawPath(
