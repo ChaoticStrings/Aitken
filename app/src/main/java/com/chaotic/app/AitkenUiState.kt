@@ -1,0 +1,54 @@
+package com.aitken.app
+
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.snapshots.SnapshotStateList
+import com.aitken.segment.ClosedSegment
+
+/**
+ * Shared, observable live-recording state, bridging [AitkenRecordingService]
+ * (which owns the actual recording pipeline and runs its sensor callback on
+ * a background thread) to the Compose UI (which reads it on the main
+ * thread). A plain top-level object, not a ViewModel — a foreground
+ * *Service*, not the Activity, owns the recording lifecycle; the Activity
+ * is only ever a view onto whatever the service is doing, and the service
+ * needs to keep running even if the Activity isn't currently visible.
+ *
+ * Kept deliberately small: a capped recent-sample window for the waveform,
+ * a capped recent-segment list for the M/D graph, and a handful of scalar
+ * status fields. No new dependency (kotlinx.coroutines/Flow) was pulled in
+ * for this — Compose's own `State` objects are safe to write from a
+ * background thread and trigger recomposition on read, which is all this
+ * needs.
+ */
+object AitkenUiState {
+
+    const val MAX_WAVEFORM_SAMPLES = 300
+    const val MAX_RECENT_SEGMENTS = 40
+
+    val phaseLabel = mutableStateOf("IDLE")
+    val isRecording = mutableStateOf(false)
+    val waveform: SnapshotStateList<Float> = mutableStateListOf()
+    val recentSegments: SnapshotStateList<ClosedSegment> = mutableStateListOf()
+    val lastTagResult = mutableStateOf<String?>(null)
+    /** Static placeholder — ticket 13 (Auto-tagging integration) wires this to a real ClassifierRunner score. */
+    val confidenceLabel = mutableStateOf("—")
+
+    fun pushSample(vertical: Float) {
+        waveform.add(vertical)
+        while (waveform.size > MAX_WAVEFORM_SAMPLES) waveform.removeAt(0)
+    }
+
+    fun pushSegment(segment: ClosedSegment) {
+        recentSegments.add(segment)
+        while (recentSegments.size > MAX_RECENT_SEGMENTS) recentSegments.removeAt(0)
+    }
+
+    fun reset() {
+        waveform.clear()
+        recentSegments.clear()
+        phaseLabel.value = "IDLE"
+        isRecording.value = false
+        lastTagResult.value = null
+    }
+}

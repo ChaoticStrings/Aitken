@@ -8,8 +8,14 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
+import com.aitken.app.AitkenUiState
+import com.aitken.app.SettingsStore
+import com.aitken.app.Tunables
 import com.aitken.location.AndroidGpsProvider
+import com.aitken.segment.NoiseFloorCalibrator
 import com.aitken.sensor.AndroidSensorStream
+import com.aitken.tagging.TagKind
+import com.aitken.tagging.TagMatch
 import com.aitken.tagging.TagMatcher
 import java.io.File
 import java.text.SimpleDateFormat
@@ -49,15 +55,25 @@ import kotlin.math.abs
  * separately (ticket 12), never on this path — satisfies architecture
  * invariant 4 (no-network-required, scoped to Aitken's recording path).
  *
- * Turn suppression: yaw rate over [TURN_YAW_THRESHOLD_RAD_S] is treated as
- * "turning." That threshold is `[CALIBRATE]` — a placeholder, not derived
- * from any audited session, same as every other tunable in this pipeline.
+ * Turn suppression uses [Tunables.turnYawThresholdRadS], loaded fresh from
+ * [SettingsStore] at the start of every session — a rider can change it
+ * (and every other tunable) in the settings screen between rides without
+ * needing a rebuild. Live sensor values and closed segments are pushed to
+ * [AitkenUiState] as they happen, so the session screen's M/D graph has
+ * something to draw; this service never reads [AitkenUiState] itself, only
+ * writes to it — a foreground service outliving the Activity's lifecycle
+ * shouldn't depend on anything the UI layer owns.
  */
 class AitkenRecordingService : Service() {
 
     private var pipeline: RecordingPipeline? = null
     private var sensorStream: AndroidSensorStream? = null
     private var gpsProvider: AndroidGpsProvider? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        instance = this
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -69,18 +85,38 @@ class AitkenRecordingService : Service() {
 
     override fun onDestroy() {
         stopSession()
+        instance = null
         super.onDestroy()
     }
 
     private fun startSession() {
+        AitkenUiState.reset()
+        val tunables = SettingsStore.load(this)
+
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val sessionDir = File(getExternalFilesDir(null) ?: filesDir, "session_$stamp")
         sessionDir.mkdirs()
 
         val recorder = SessionRecorder(sessionDir)
         val tagMatcher = TagMatcher()
-        val newPipeline = RecordingPipeline(recorder, tagMatcher)
+        val calibrator = NoiseFloorCalibrator(
+            calibrationDurationMs = tunables.calibrationDurationMs,
+            stdFactor = tunables.stdFactor,
+            floorStd = tunables.floorStd
+        )
+        val newPipeline = RecordingPipeline(
+            recorder = recorder,
+            tagMatcher = tagMatcher,
+            onCalibrationDone = { AitkenUiState.phaseLabel.value = "RECORDING" },
+            calibrator = calibrator,
+            endQuietMs = tunables.endQuietMs,
+            minSegmentDurationMs = tunables.minSegmentDurationMs,
+            onLiveVertical = { vertical -> AitkenUiState.pushSample(vertical) },
+            onSegmentClosedForUi = { segment -> AitkenUiState.pushSegment(segment) }
+        )
         pipeline = newPipeline
+        AitkenUiState.phaseLabel.value = "CALIBRATING"
+        AitkenUiState.isRecording.value = true
 
         val gps = AndroidGpsProvider(this)
         gpsProvider = gps
@@ -89,7 +125,7 @@ class AitkenRecordingService : Service() {
         val sensors = AndroidSensorStream(this)
         sensorStream = sensors
         sensors.start { sample ->
-            val turning = abs(sample.gyroZ ?: 0f) >= TURN_YAW_THRESHOLD_RAD_S
+            val turning = abs(sample.gyroZ ?: 0f) >= tunables.turnYawThresholdRadS
             newPipeline.onSensorSample(sample, turning)
         }
     }
@@ -101,6 +137,18 @@ class AitkenRecordingService : Service() {
         pipeline = null
         sensorStream = null
         gpsProvider = null
+        AitkenUiState.isRecording.value = false
+        AitkenUiState.phaseLabel.value = "IDLE"
+    }
+
+    /** Exposes the manual-tagging call for the UI to invoke — see [RecordingPipeline.tag]. */
+    fun tag(kind: TagKind, label: String) {
+        val result = pipeline?.tag(kind, label)
+        AitkenUiState.lastTagResult.value = when (result) {
+            is TagMatch.Matched -> "$label matched (${result.tapOffsetMs}ms late)"
+            is TagMatch.Unmatched -> "$label — no segment found"
+            null -> "$label — no sensor data yet"
+        }
     }
 
     private fun buildNotification(): Notification {
@@ -114,9 +162,19 @@ class AitkenRecordingService : Service() {
             .build()
     }
 
-    private companion object {
-        const val NOTIFICATION_ID = 1
-        const val CHANNEL_ID = "aitken_recording"
-        const val TURN_YAW_THRESHOLD_RAD_S = 1.0f
+    companion object {
+        private const val NOTIFICATION_ID = 1
+        private const val CHANNEL_ID = "aitken_recording"
+
+        /**
+         * Same-process reference the UI layer calls [tag] through. Not a
+         * bound service / Binder / AIDL — this never crosses processes, so
+         * a plain nullable static reference is the simplest thing that
+         * works, set in [onCreate] and cleared in [onDestroy]. Null means
+         * no session is currently running; callers should treat that the
+         * same way [tag] treats "no sensor data yet."
+         */
+        var instance: AitkenRecordingService? = null
+            private set
     }
 }

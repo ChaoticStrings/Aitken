@@ -5,9 +5,12 @@ import com.aitken.dsp.JerkFilter
 import com.aitken.dsp.RollingStats
 import com.aitken.dsp.Verticalizer
 import com.aitken.location.GpsFix
+import com.aitken.segment.ClosedSegment
 import com.aitken.segment.NoiseFloorCalibrator
 import com.aitken.segment.SegmentDetector
 import com.aitken.sensor.SensorStream
+import com.aitken.tagging.TagKind
+import com.aitken.tagging.TagMatch
 import com.aitken.tagging.TagMatcher
 
 /**
@@ -38,7 +41,11 @@ class RecordingPipeline(
     private val calibrator: NoiseFloorCalibrator = NoiseFloorCalibrator(),
     private val endQuietMs: Long = 500L,
     private val minSegmentDurationMs: Long = 30L,
-    private val now: () -> Long = { System.currentTimeMillis() }
+    private val now: () -> Long = { System.currentTimeMillis() },
+    /** Called with every computed vertical value — feeds the live waveform (ticket 11's M/D graph). */
+    private val onLiveVertical: (Float) -> Unit = {},
+    /** Called with every closed segment, in addition to TagMatcher — feeds the M/D graph's segment markers. */
+    private val onSegmentClosedForUi: (ClosedSegment) -> Unit = {}
 ) {
 
     private enum class Phase { CALIBRATING, DETECTING }
@@ -46,6 +53,19 @@ class RecordingPipeline(
     private var phase = Phase.CALIBRATING
     private var detector: SegmentDetector? = null
     private var latestSpeedMps: Float? = null
+
+    /**
+     * The most recently seen sensor sample's own timestamp — used as "now"
+     * for manual taps ([tag]), deliberately never an independently-read
+     * system clock. `SensorEvent.timestamp` and `System.nanoTime()`/
+     * `SystemClock` don't reliably share an epoch on real devices
+     * (Prototype 1's own audited finding, `DEFAULT_CALIBRATION.md`: label
+     * rows must carry the sensor clock, not `System.nanoTime()`, which was
+     * observed to differ by hours). Reusing the last real sensor timestamp
+     * sidesteps the whole question, by construction, regardless of which
+     * clock the sensor actually uses.
+     */
+    private var lastSensorTimestampNs: Long? = null
 
     /** Caller feeds every GPS fix here as it arrives. */
     fun onGpsFix(fix: GpsFix) {
@@ -60,11 +80,14 @@ class RecordingPipeline(
      * suppresses new segment starts, per [SegmentDetector].
      */
     fun onSensorSample(sample: SensorStream.SensorSample, turning: Boolean) {
+        lastSensorTimestampNs = sample.timestampNs
+
         val accel = sample.accelArray
         val g = gravity.update(accel)
         val vertical = verticalizer.verticalComponent(accel, g)
         val jerk = jerkFilter.push(vertical)
         val stats = rollingStats.push(vertical)
+        onLiveVertical(vertical)
 
         recorder.writeSensorSample(
             timestampSensorNs = sample.timestampNs,
@@ -95,6 +118,7 @@ class RecordingPipeline(
                 if (closed != null) {
                     recorder.writeClosedSegment(closed, latestSpeedMps, now())
                     tagMatcher.onSegmentClosed(closed)
+                    onSegmentClosedForUi(closed)
                 }
             }
         }
@@ -103,11 +127,38 @@ class RecordingPipeline(
     /** The currently-open segment, if any — for the manual tagging UI (ticket 11). */
     fun currentOpenSegment() = detector?.currentOpenSegment()
 
+    /**
+     * Match a manual tap (point or range boundary) against current segment
+     * state and persist it to the labels file — the actual logic behind
+     * ticket 11's tap buttons. Uses [lastSensorTimestampNs] as the tap's
+     * timestamp, never an independently-read clock (see that field's doc).
+     *
+     * @return the match result, or null if no sensor sample has arrived
+     * yet (nothing to tag against — e.g. tapped during calibration's very
+     * first instant, before any sample has been processed).
+     */
+    fun tag(kind: TagKind, label: String): TagMatch? {
+        val tapTimestampNs = lastSensorTimestampNs ?: return null
+        val match = tagMatcher.match(tapTimestampNs, kind, currentOpenSegment())
+        val segmentStartNs = (match as? TagMatch.Matched)?.segmentStartNs
+        val tapOffsetMs = (match as? TagMatch.Matched)?.tapOffsetMs
+        recorder.writeLabel(
+            timestampSensorNs = tapTimestampNs,
+            kind = kind.name,
+            segmentStartNs = segmentStartNs,
+            label = label,
+            tapOffsetMs = tapOffsetMs,
+            epochMs = now()
+        )
+        return match
+    }
+
     /** Ends the session: force-closes any open segment, then flushes and closes all four files. */
     fun endSession() {
         detector?.endSession()?.let { closed ->
             recorder.writeClosedSegment(closed, latestSpeedMps, now())
             tagMatcher.onSegmentClosed(closed)
+            onSegmentClosedForUi(closed)
         }
         recorder.close()
     }

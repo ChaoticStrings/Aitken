@@ -8,6 +8,7 @@ import com.aitken.tagging.TagKind
 import com.aitken.tagging.TagMatch
 import com.aitken.tagging.TagMatcher
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -127,5 +128,64 @@ class RecordingPipelineTest {
         assertEquals(2, segmentLines.size)
         // No GPS fix was ever pushed in this test -> speed cell is blank.
         assertEquals("1,30000000,10000000,5.000,3.536,,5555", segmentLines[1])
+    }
+
+    @Test
+    fun `tag returns null and writes nothing when no sensor sample has arrived yet`() {
+        val pipeline = newPipeline()
+
+        val result = pipeline.tag(TagKind.POINT, "Pothole")
+
+        assertNull(result)
+        val labelLines = File(tempFolder.root, "labels.csv").readLines()
+        assertEquals(1, labelLines.size) // header only
+    }
+
+    @Test
+    fun `tag matches the currently-open segment and writes it to labels csv`() {
+        val pipeline = newPipeline(now = { 9999L })
+        pipeline.onSensorSample(sample(0L, 0f), turning = false)
+        pipeline.onSensorSample(sample(10 * ms, 0f), turning = false)
+        pipeline.onSensorSample(sample(20 * ms, 0f), turning = false) // calibration done
+        pipeline.onSensorSample(sample(30 * ms, 5f), turning = false) // opens
+
+        val result = pipeline.tag(TagKind.POINT, "Pothole")
+
+        assertTrue(result is TagMatch.Matched)
+        assertEquals(30 * ms, (result as TagMatch.Matched).segmentStartNs)
+        val labelLines = File(tempFolder.root, "labels.csv").readLines()
+        // tap at lastSensorTimestampNs=30ms, same as the segment's own lastSignalNs at this point -> offset 0
+        assertEquals("1,30000000,POINT,30000000,Pothole,0,9999", labelLines[1])
+    }
+
+    @Test
+    fun `an unmatched tap is still logged, with blank segment reference and offset`() {
+        val pipeline = newPipeline(now = { 9999L })
+        pipeline.onSensorSample(sample(0L, 0f), turning = false)
+        pipeline.onSensorSample(sample(10 * ms, 0f), turning = false)
+        pipeline.onSensorSample(sample(20 * ms, 0f), turning = false) // calibration done, nothing ever opened
+
+        val result = pipeline.tag(TagKind.POINT, "Pothole")
+
+        assertTrue(result is TagMatch.Unmatched)
+        val labelLines = File(tempFolder.root, "labels.csv").readLines()
+        assertEquals("1,20000000,POINT,,Pothole,,9999", labelLines[1])
+    }
+
+    @Test
+    fun `range-tag start and end are recorded with distinct kind values`() {
+        val pipeline = newPipeline(now = { 9999L })
+        pipeline.onSensorSample(sample(0L, 0f), turning = false)
+        pipeline.onSensorSample(sample(10 * ms, 0f), turning = false)
+        pipeline.onSensorSample(sample(20 * ms, 0f), turning = false)
+        pipeline.onSensorSample(sample(30 * ms, 5f), turning = false) // opens
+
+        pipeline.tag(TagKind.RANGE_START, "Rough stretch")
+        pipeline.tag(TagKind.RANGE_END, "Rough stretch")
+
+        val labelLines = File(tempFolder.root, "labels.csv").readLines()
+        assertEquals(3, labelLines.size) // header + 2 rows
+        assertTrue(labelLines[1].contains(",RANGE_START,"))
+        assertTrue(labelLines[2].contains(",RANGE_END,"))
     }
 }
