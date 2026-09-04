@@ -42,7 +42,9 @@ class RecordingPipelineTest {
 
     private fun newPipeline(
         tagMatcher: TagMatcher = TagMatcher(),
-        onCalibrationDone: () -> Unit = {},
+        onCalibrationDone: (Float) -> Unit = {},
+        onCalibrationProgress: (Float) -> Unit = {},
+        tagDebounceMs: () -> Long = { 500L },
         now: () -> Long = { 0L }
     ): RecordingPipeline {
         val recorder = SessionRecorder(tempFolder.root, flushEveryNRows = 1)
@@ -57,6 +59,8 @@ class RecordingPipelineTest {
             recorder = recorder,
             tagMatcher = tagMatcher,
             onCalibrationDone = onCalibrationDone,
+            onCalibrationProgress = onCalibrationProgress,
+            tagDebounceMs = tagDebounceMs,
             calibrator = calibrator,
             endQuietMs = 15L,
             minSegmentDurationMs = 5L,
@@ -67,17 +71,37 @@ class RecordingPipelineTest {
     @Test
     fun `calibration phase writes sensor rows but produces no segments`() {
         var calibrationDoneCalls = 0
-        val pipeline = newPipeline(onCalibrationDone = { calibrationDoneCalls++ })
+        var reportedThreshold = -1f
+        val pipeline = newPipeline(onCalibrationDone = { threshold ->
+            calibrationDoneCalls++
+            reportedThreshold = threshold
+        })
 
         pipeline.onSensorSample(sample(0L, 0f), turning = false)
         pipeline.onSensorSample(sample(10 * ms, 0f), turning = false)
         pipeline.onSensorSample(sample(20 * ms, 0f), turning = false) // crosses 15ms -> done
 
         assertEquals(1, calibrationDoneCalls)
+        // Flat 0f calibration -> std=0, floors to 0.05, threshold = 0.05*3 = 0.15,
+        // same trace as NoiseFloorCalibratorTest's "floor applies" case.
+        assertEquals(0.15f, reportedThreshold, 0.001f)
         val sensorLines = File(tempFolder.root, "sensor.csv").readLines()
         assertEquals(4, sensorLines.size) // header + 3 rows
         val segmentLines = File(tempFolder.root, "segments.csv").readLines()
         assertEquals(1, segmentLines.size) // header only, no segments yet
+    }
+
+    @Test
+    fun `calibration progress climbs toward 1 and stops being reported once detecting starts`() {
+        val progressReadings = mutableListOf<Float>()
+        val pipeline = newPipeline(onCalibrationProgress = { progressReadings.add(it) })
+
+        pipeline.onSensorSample(sample(0L, 0f), turning = false) // elapsed 0ms of 15ms
+        pipeline.onSensorSample(sample(10 * ms, 0f), turning = false) // elapsed 10ms of 15ms
+        pipeline.onSensorSample(sample(20 * ms, 0f), turning = false) // crosses 15ms -> done
+        pipeline.onSensorSample(sample(30 * ms, 0f), turning = false) // now detecting, not calibrating
+
+        assertEquals(listOf(0f, 10f / 15f, 1f), progressReadings)
     }
 
     @Test
@@ -170,6 +194,91 @@ class RecordingPipelineTest {
         assertTrue(result is TagMatch.Unmatched)
         val labelLines = File(tempFolder.root, "labels.csv").readLines()
         assertEquals("1,20000000,POINT,,Pothole,,9999", labelLines[1])
+    }
+
+    @Test
+    fun `a second tap of the same kind and label within the debounce window is ignored`() {
+        val pipeline = newPipeline(now = { 9999L }, tagDebounceMs = { 500L })
+        pipeline.onSensorSample(sample(0L, 0f), turning = false)
+        pipeline.onSensorSample(sample(10 * ms, 0f), turning = false)
+        pipeline.onSensorSample(sample(20 * ms, 0f), turning = false) // calibration done
+
+        val first = pipeline.tag(TagKind.POINT, "Pothole")
+        pipeline.onSensorSample(sample(220 * ms, 0f), turning = false) // 200ms later, < 500ms window
+        val second = pipeline.tag(TagKind.POINT, "Pothole")
+
+        assertTrue(first is TagMatch.Unmatched)
+        assertNull(second)
+        val labelLines = File(tempFolder.root, "labels.csv").readLines()
+        assertEquals(2, labelLines.size) // header + only the first tap
+    }
+
+    @Test
+    fun `a second tap of the same kind and label outside the debounce window still records`() {
+        val pipeline = newPipeline(now = { 9999L }, tagDebounceMs = { 500L })
+        pipeline.onSensorSample(sample(0L, 0f), turning = false)
+        pipeline.onSensorSample(sample(10 * ms, 0f), turning = false)
+        pipeline.onSensorSample(sample(20 * ms, 0f), turning = false) // calibration done
+
+        val first = pipeline.tag(TagKind.POINT, "Pothole")
+        pipeline.onSensorSample(sample(600 * ms, 0f), turning = false) // 580ms later, > 500ms window
+        val second = pipeline.tag(TagKind.POINT, "Pothole")
+
+        assertTrue(first is TagMatch.Unmatched)
+        assertTrue(second is TagMatch.Unmatched)
+        val labelLines = File(tempFolder.root, "labels.csv").readLines()
+        assertEquals(3, labelLines.size) // header + both taps
+    }
+
+    @Test
+    fun `taps for different labels are never debounced against each other, even with the same kind`() {
+        val pipeline = newPipeline(now = { 9999L }, tagDebounceMs = { 500L })
+        pipeline.onSensorSample(sample(0L, 0f), turning = false)
+        pipeline.onSensorSample(sample(10 * ms, 0f), turning = false)
+        pipeline.onSensorSample(sample(20 * ms, 0f), turning = false) // calibration done
+
+        val pothole = pipeline.tag(TagKind.POINT, "Pothole")
+        val bump = pipeline.tag(TagKind.POINT, "Bump") // same instant, different label
+
+        assertTrue(pothole is TagMatch.Unmatched)
+        assertTrue(bump is TagMatch.Unmatched)
+        val labelLines = File(tempFolder.root, "labels.csv").readLines()
+        assertEquals(3, labelLines.size) // header + both, neither debounced against the other
+    }
+
+    @Test
+    fun `range-tag start and end are debounced independently even though they share a label`() {
+        val pipeline = newPipeline(now = { 9999L }, tagDebounceMs = { 500L })
+        pipeline.onSensorSample(sample(0L, 0f), turning = false)
+        pipeline.onSensorSample(sample(10 * ms, 0f), turning = false)
+        pipeline.onSensorSample(sample(20 * ms, 0f), turning = false) // calibration done
+
+        val start = pipeline.tag(TagKind.RANGE_START, "Rough stretch")
+        val end = pipeline.tag(TagKind.RANGE_END, "Rough stretch") // same instant, same label
+
+        assertTrue(start is TagMatch.Unmatched)
+        assertTrue(end is TagMatch.Unmatched)
+        val labelLines = File(tempFolder.root, "labels.csv").readLines()
+        assertEquals(3, labelLines.size)
+    }
+
+    @Test
+    fun `a live-changed debounce window applies to the very next tap`() {
+        var debounceMs = 1000L
+        val pipeline = newPipeline(now = { 9999L }, tagDebounceMs = { debounceMs })
+        pipeline.onSensorSample(sample(0L, 0f), turning = false)
+        pipeline.onSensorSample(sample(10 * ms, 0f), turning = false)
+        pipeline.onSensorSample(sample(20 * ms, 0f), turning = false) // calibration done
+
+        pipeline.tag(TagKind.POINT, "Pothole") // tap at 20ms, under the original 1000ms window
+        pipeline.onSensorSample(sample(220 * ms, 0f), turning = false) // 200ms later
+
+        debounceMs = 100L // shrink the window before the second tap
+        val second = pipeline.tag(TagKind.POINT, "Pothole") // 200ms since first tap, now > 100ms window
+
+        assertTrue(second is TagMatch.Unmatched) // no longer debounced under the new, shorter window
+        val labelLines = File(tempFolder.root, "labels.csv").readLines()
+        assertEquals(3, labelLines.size)
     }
 
     @Test

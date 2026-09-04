@@ -18,7 +18,8 @@ object SettingsStore {
             minSegmentDurationMs = p.getLong("minSegmentDurationMs", d.minSegmentDurationMs),
             turnYawThresholdRadS = p.getFloat("turnYawThresholdRadS", d.turnYawThresholdRadS),
             mildSeverityDeviation = p.getFloat("mildSeverityDeviation", d.mildSeverityDeviation),
-            moderateSeverityDeviation = p.getFloat("moderateSeverityDeviation", d.moderateSeverityDeviation)
+            moderateSeverityDeviation = p.getFloat("moderateSeverityDeviation", d.moderateSeverityDeviation),
+            tagDebounceMs = p.getLong("tagDebounceMs", d.tagDebounceMs)
         )
     }
 
@@ -32,6 +33,7 @@ object SettingsStore {
             .putFloat("turnYawThresholdRadS", t.turnYawThresholdRadS)
             .putFloat("mildSeverityDeviation", t.mildSeverityDeviation)
             .putFloat("moderateSeverityDeviation", t.moderateSeverityDeviation)
+            .putLong("tagDebounceMs", t.tagDebounceMs)
             .apply()
     }
 }

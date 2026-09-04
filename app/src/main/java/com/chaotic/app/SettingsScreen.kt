@@ -42,7 +42,7 @@ import androidx.compose.ui.unit.sp
  * Prototype 1's own settings convention — never mid-ride.
  */
 @Composable
-fun SettingsScreen(onBack: () -> Unit) {
+fun SettingsScreen(onBack: () -> Unit, onOpenStorageGrant: () -> Unit) {
     val context = LocalContext.current
     val current = remember { SettingsStore.load(context) }
 
@@ -54,6 +54,7 @@ fun SettingsScreen(onBack: () -> Unit) {
     var turnThreshold by remember { mutableFloatStateOf(current.turnYawThresholdRadS) }
     var mildDeviation by remember { mutableFloatStateOf(current.mildSeverityDeviation) }
     var moderateDeviation by remember { mutableFloatStateOf(current.moderateSeverityDeviation) }
+    var tagDebounceMs by remember { mutableFloatStateOf(current.tagDebounceMs.toFloat()) }
 
     Column(
         modifier = Modifier
@@ -163,6 +164,26 @@ fun SettingsScreen(onBack: () -> Unit) {
             valueLabel = "%.1f m/s²".format(moderateDeviation)
         )
 
+        BigSlider(
+            label = "Tap cooldown",
+            help = "Applies immediately — even mid-ride, unlike everything above. Minimum " +
+                "time between two taps of the same button, so a shaking mount can't " +
+                "double-fire one tap. Lower = catches genuinely fast repeat events; " +
+                "higher = more forgiving of vibration.",
+            value = tagDebounceMs,
+            onValueChange = { tagDebounceMs = it },
+            valueRange = 200f..1200f,
+            steps = 9, // 100ms increments
+            valueLabel = "${tagDebounceMs.toInt()}ms"
+        )
+
+        OutlinedButton(
+            onClick = onOpenStorageGrant,
+            modifier = Modifier.fillMaxWidth().height(56.dp)
+        ) {
+            Text("BACKUP FOLDER", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        }
+
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(
                 onClick = {
@@ -176,7 +197,8 @@ fun SettingsScreen(onBack: () -> Unit) {
                             minSegmentDurationMs = minSegmentMs.toLong(),
                             turnYawThresholdRadS = turnThreshold,
                             mildSeverityDeviation = mildDeviation,
-                            moderateSeverityDeviation = moderateDeviation
+                            moderateSeverityDeviation = moderateDeviation,
+                            tagDebounceMs = tagDebounceMs.toLong()
                         )
                     )
                     onBack()

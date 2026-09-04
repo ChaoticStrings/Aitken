@@ -36,6 +36,29 @@ class NoiseFloorCalibratorTest {
     }
 
     @Test
+    fun `progressFraction rises from 0 toward 1 as calibration elapses`() {
+        val calibrator = NoiseFloorCalibrator(calibrationDurationMs = 1000L)
+        assertEquals(0f, calibrator.progressFraction, 0.001f)
+
+        calibrator.push(0L, 0f)
+        assertEquals(0f, calibrator.progressFraction, 0.001f) // no time elapsed on the very first sample
+
+        calibrator.push(500 * ms, 0f)
+        assertEquals(0.5f, calibrator.progressFraction, 0.001f)
+
+        calibrator.push(1000 * ms, 0f)
+        assertEquals(1f, calibrator.progressFraction, 0.001f)
+    }
+
+    @Test
+    fun `progressFraction is clamped to 1 even if a push arrives well past the duration`() {
+        val calibrator = NoiseFloorCalibrator(calibrationDurationMs = 1000L)
+        calibrator.push(0L, 0f)
+        calibrator.push(5000 * ms, 0f)
+        assertEquals(1f, calibrator.progressFraction, 0.001f)
+    }
+
+    @Test
     fun `thresholds are derived from the measured noise floor times stdFactor`() {
         // window size 2, values [0, 1]: mean=0.5, var=(0+1)/2-0.25=0.25, std=0.5
         // flooredNoiseStd = max(0.5, 0.05) = 0.5

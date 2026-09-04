@@ -32,8 +32,17 @@ object AitkenUiState {
     val waveform: SnapshotStateList<Float> = mutableStateListOf()
     val recentSegments: SnapshotStateList<ClosedSegment> = mutableStateListOf()
     val lastTagResult = mutableStateOf<String?>(null)
-    /** Static placeholder — ticket 13 (Auto-tagging integration) wires this to a real ClassifierRunner score. */
-    val confidenceLabel = mutableStateOf("—")
+    /**
+     * Removed from the UI (ticket 23) -- was a static "—" placeholder no
+     * code ever wrote to. Kept here, commented out, for ticket 13 (Auto-
+     * tagging integration) to wire to a real ClassifierRunner score:
+     *
+     * val confidenceLabel = mutableStateOf("—")
+     */
+    /** 0f..1f progress through the CALIBRATING phase — see RecordingPipeline.onCalibrationProgress. */
+    val calibrationProgress = mutableStateOf(0f)
+    /** The session's calibrated short-window std threshold, null until calibration completes. */
+    val calibratedThresholdM = mutableStateOf<Float?>(null)
 
     /**
      * add() then removeAt(0) are two separate SnapshotStateList writes;
@@ -64,5 +73,7 @@ object AitkenUiState {
         phaseLabel.value = "IDLE"
         isRecording.value = false
         lastTagResult.value = null
+        calibrationProgress.value = 0f
+        calibratedThresholdM.value = null
     }
 }

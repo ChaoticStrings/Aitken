@@ -33,7 +33,8 @@ import com.aitken.tagging.TagMatcher
 class RecordingPipeline(
     private val recorder: SessionRecorder,
     private val tagMatcher: TagMatcher,
-    private val onCalibrationDone: () -> Unit = {},
+    /** Called once, with the session's calibrated short-window std threshold (ticket 22). */
+    private val onCalibrationDone: (Float) -> Unit = {},
     private val gravity: GravityEstimator = GravityEstimator(),
     private val verticalizer: Verticalizer = Verticalizer(),
     private val jerkFilter: JerkFilter = JerkFilter(),
@@ -45,7 +46,17 @@ class RecordingPipeline(
     /** Called with every computed vertical value — feeds the live waveform (ticket 11's M/D graph). */
     private val onLiveVertical: (Float) -> Unit = {},
     /** Called with every closed segment, in addition to TagMatcher — feeds the M/D graph's segment markers. */
-    private val onSegmentClosedForUi: (ClosedSegment) -> Unit = {}
+    private val onSegmentClosedForUi: (ClosedSegment) -> Unit = {},
+    /** Called on every sample while CALIBRATING, with progress toward completion (ticket 22). */
+    private val onCalibrationProgress: (Float) -> Unit = {},
+    /**
+     * Minimum time between two [tag] calls of the same (kind, label) before
+     * the second is ignored outright (ticket 21). Read fresh on every call,
+     * not captured once at construction, so a rider adjusting this in
+     * Settings takes effect on their very next tap — never applies to the
+     * data pipeline itself, only to whether a tap reaches it at all.
+     */
+    private val tagDebounceMs: () -> Long = { 500L }
 ) {
 
     private enum class Phase { CALIBRATING, DETECTING }
@@ -66,6 +77,9 @@ class RecordingPipeline(
      * clock the sensor actually uses.
      */
     private var lastSensorTimestampNs: Long? = null
+
+    /** Last tap timestamp per (kind, label) — "the same button" — for debouncing. */
+    private val lastTagTimestampNs = mutableMapOf<Pair<TagKind, String>, Long>()
 
     /** Caller feeds every GPS fix here as it arrives. */
     fun onGpsFix(fix: GpsFix) {
@@ -99,17 +113,19 @@ class RecordingPipeline(
         when (phase) {
             Phase.CALIBRATING -> {
                 val done = calibrator.push(sample.timestampNs, vertical)
+                onCalibrationProgress(calibrator.progressFraction)
                 if (done) {
+                    val shortThreshold = calibrator.shortStdThreshold()
                     detector = SegmentDetector(
                         shortWindow = calibrator.shortWindow,
                         longWindow = calibrator.longWindow,
-                        shortStdThreshold = calibrator.shortStdThreshold(),
+                        shortStdThreshold = shortThreshold,
                         longStdThreshold = calibrator.longStdThreshold(),
                         endQuietMs = endQuietMs,
                         minSegmentDurationMs = minSegmentDurationMs
                     )
                     phase = Phase.DETECTING
-                    onCalibrationDone()
+                    onCalibrationDone(shortThreshold)
                 }
             }
             Phase.DETECTING -> {
@@ -133,12 +149,23 @@ class RecordingPipeline(
      * ticket 11's tap buttons. Uses [lastSensorTimestampNs] as the tap's
      * timestamp, never an independently-read clock (see that field's doc).
      *
-     * @return the match result, or null if no sensor sample has arrived
-     * yet (nothing to tag against — e.g. tapped during calibration's very
-     * first instant, before any sample has been processed).
+     * @return the match result, or null if no sensor sample has arrived yet
+     * (nothing to tag against — e.g. tapped during calibration's very first
+     * instant, before any sample has been processed), or if this exact
+     * (kind, label) button was tapped less than [tagDebounceMs] ago — a
+     * debounced tap is dropped outright, same as an unmatched one is *not*:
+     * it never reaches [TagMatcher] and nothing is written to disk.
      */
     fun tag(kind: TagKind, label: String): TagMatch? {
         val tapTimestampNs = lastSensorTimestampNs ?: return null
+
+        val key = kind to label
+        val lastTapNs = lastTagTimestampNs[key]
+        if (lastTapNs != null && (tapTimestampNs - lastTapNs) / 1_000_000L < tagDebounceMs()) {
+            return null
+        }
+        lastTagTimestampNs[key] = tapTimestampNs
+
         val match = tagMatcher.match(tapTimestampNs, kind, currentOpenSegment())
         val segmentStartNs = (match as? TagMatch.Matched)?.segmentStartNs
         val tapOffsetMs = (match as? TagMatch.Matched)?.tapOffsetMs

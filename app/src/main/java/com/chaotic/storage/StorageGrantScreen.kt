@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -20,9 +21,13 @@ import androidx.compose.ui.unit.dp
  * [grant] already reports a URI; BackupAgent (08) and ClassifierConfigLoader
  * (07) both read whatever folder was granted here — this screen only ever
  * writes through [SafFolderGrant], never touches [SafStorageAdapter] itself.
+ *
+ * Reachable from Settings, and shown once automatically on a fresh app
+ * launch if nothing's granted yet (ticket 24) — [onBack] is what makes it
+ * navigable from either entry point rather than a dead end.
  */
 @Composable
-fun StorageGrantScreen(grant: SafFolderGrant) {
+fun StorageGrantScreen(grant: SafFolderGrant, onBack: () -> Unit) {
     var grantedUri by remember { mutableStateOf(grant.grantedUri()) }
 
     val picker = rememberLauncherForActivityResult(
@@ -38,9 +43,18 @@ fun StorageGrantScreen(grant: SafFolderGrant) {
         modifier = Modifier.padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text(if (grantedUri != null) "Backup folder granted" else "No backup folder granted yet")
+        Text(
+            if (grantedUri != null) "Backup folder granted" else "No backup folder granted yet"
+        )
+        Text(
+            "Aitken keeps recording either way — this only controls where a copy " +
+                "of each finished session gets exported so you can find it."
+        )
         Button(onClick = { picker.launch(null) }) {
             Text(if (grantedUri != null) "Change folder" else "Grant folder")
+        }
+        OutlinedButton(onClick = onBack) {
+            Text("BACK")
         }
     }
 }

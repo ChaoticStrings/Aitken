@@ -36,5 +36,12 @@ data class Tunables(
     /** Below this, a segment's peak deviation from the gravity baseline reads as MILD on the graph. */
     val mildSeverityDeviation: Float = 5f,
     /** Below this (and at/above mild), a segment reads as MODERATE; at/above it, SEVERE. */
-    val moderateSeverityDeviation: Float = 15f
+    val moderateSeverityDeviation: Float = 15f,
+    /**
+     * Minimum time between two taps of the same tag button before the
+     * second is ignored, so a shaking mount can't double-fire one button.
+     * Unlike every other field here, this one is read fresh on every tap
+     * rather than once per session — see `AitkenRecordingService`.
+     */
+    val tagDebounceMs: Long = 500L
 )

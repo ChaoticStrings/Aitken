@@ -67,6 +67,14 @@ class NoiseFloorCalibrator(
             return (lastTimestampNs - start) / 1_000_000L >= calibrationDurationMs
         }
 
+    /** Fraction of [calibrationDurationMs] elapsed so far, clamped to 0f..1f — for a progress UI. */
+    val progressFraction: Float
+        get() {
+            val start = startNs ?: return 0f
+            val elapsedMs = (lastTimestampNs - start) / 1_000_000L
+            return (elapsedMs.toFloat() / calibrationDurationMs).coerceIn(0f, 1f)
+        }
+
     /**
      * Push one vertical-acceleration sample during the calibration window.
      *

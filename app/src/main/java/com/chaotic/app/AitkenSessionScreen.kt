@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -30,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -39,6 +41,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.aitken.recording.AitkenRecordingService
+import com.aitken.storage.SharedPreferencesSafFolderGrant
+import com.aitken.storage.StorageGrantScreen
 import com.aitken.tagging.TagKind
 
 /**
@@ -62,9 +66,21 @@ fun AitkenSessionScreen() {
     val isRecording by AitkenUiState.isRecording
     val phaseLabel by AitkenUiState.phaseLabel
     var showSettings by remember { mutableStateOf(false) }
+    val storageGrant = remember { SharedPreferencesSafFolderGrant(context) }
+    // Computed once per app process, not re-checked on every recomposition --
+    // "one-time prompt on first launch if ungranted" (ticket 24), not a nag
+    // that reappears every time Settings closes. Suppressed if a session is
+    // already running in the background (AitkenRecordingService outlives the
+    // Activity) -- reopening mid-ride should land on the ride, not a prompt.
+    var showStorageGrant by remember { mutableStateOf(storageGrant.grantedUri() == null && !isRecording) }
+
+    if (showStorageGrant) {
+        StorageGrantScreen(grant = storageGrant, onBack = { showStorageGrant = false })
+        return
+    }
 
     if (showSettings) {
-        SettingsScreen(onBack = { showSettings = false })
+        SettingsScreen(onBack = { showSettings = false }, onOpenStorageGrant = { showStorageGrant = true })
         return
     }
 
@@ -110,22 +126,29 @@ fun AitkenSessionScreen() {
         } else {
             MdGraph(modifier = Modifier.weight(0.42f).fillMaxWidth(), tunables = tunables)
 
-            val lastTagResult by AitkenUiState.lastTagResult
-            val confidenceLabel by AitkenUiState.confidenceLabel
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            if (phaseLabel == "CALIBRATING") {
+                val calibrationProgress by AitkenUiState.calibrationProgress
+                CalibratingBanner(progress = calibrationProgress)
+            } else {
+                val lastTagResult by AitkenUiState.lastTagResult
+                // Confidence indicator removed here -- Aitken-phase (ticket 13's
+                // ClassifierRunner), not Luna. AitkenUiState.confidenceLabel stays
+                // commented out below, not deleted, for ticket 13 to pick back up.
                 Text(
                     lastTagResult ?: "Ride safe.",
                     color = Color(0xFFCFD8DC),
                     fontSize = 15.sp,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.fillMaxWidth()
                 )
-                Text("Confidence: $confidenceLabel", color = Color(0xFF78909C), fontSize = 15.sp)
             }
 
             TagButtons(
                 modifier = Modifier.weight(0.58f).fillMaxWidth(),
                 context = context,
-                onOpenSettings = { showSettings = true }
+                onOpenSettings = { showSettings = true },
+                // Discarded outright, not queued -- a tap during CALIBRATING has no
+                // detector to match against yet (ticket 22).
+                tagsEnabled = phaseLabel != "CALIBRATING"
             )
         }
     }
@@ -170,7 +193,10 @@ private fun IdleControls(modifier: Modifier = Modifier, onStart: () -> Unit, onO
  * one — [AitkenUiState.waveform] stores raw values only, no timestamps, so
  * precisely aligning a segment's exact start/end against waveform pixels
  * isn't attempted here; that precision is the Workbench's job (ticket 15),
- * not this live glance-while-riding view.
+ * not this live glance-while-riding view. Once calibration has run, a
+ * dashed band overlays the waveform at the calibrated threshold — an
+ * approximation, since the real trigger is a rolling std, not a single-
+ * sample amplitude (ticket 22).
  */
 @Composable
 private fun MdGraph(modifier: Modifier = Modifier, tunables: Tunables) {
@@ -194,6 +220,20 @@ private fun MdGraph(modifier: Modifier = Modifier, tunables: Tunables) {
                 val yBot = centerY + i * (height * 0.2f)
                 drawLine(Color(0xFF263238), Offset(0f, yTop), Offset(width, yTop), strokeWidth = 1f)
                 drawLine(Color(0xFF263238), Offset(0f, yBot), Offset(width, yBot), strokeWidth = 1f)
+            }
+
+            // Approximate reference only -- the real threshold is a rolling std
+            // over a window, not a single-sample amplitude, so this dashed band
+            // is "roughly where detection kicks in," not a precise boundary. See
+            // ticket 22's note on why an exact line can't be drawn honestly.
+            val threshold = AitkenUiState.calibratedThresholdM.value
+            if (threshold != null) {
+                val dash = PathEffect.dashPathEffect(floatArrayOf(14f, 10f), 0f)
+                val bandColor = Color(0xFF546E7A)
+                val yTopBand = (centerY - threshold * scaleY).coerceIn(0f, height)
+                val yBotBand = (centerY + threshold * scaleY).coerceIn(0f, height)
+                drawLine(bandColor, Offset(0f, yTopBand), Offset(width, yTopBand), strokeWidth = 2f, pathEffect = dash)
+                drawLine(bandColor, Offset(0f, yBotBand), Offset(width, yBotBand), strokeWidth = 2f, pathEffect = dash)
             }
 
             // Snapshot once, up front. `waveform` is written from the sensor
@@ -255,8 +295,36 @@ private fun MdGraph(modifier: Modifier = Modifier, tunables: Tunables) {
     }
 }
 
+/**
+ * Shown instead of the tag-result/confidence row while CALIBRATING (ticket
+ * 22) -- explains what's happening and how much longer it'll take, since
+ * the phase label alone ("● CALIBRATING") doesn't say either.
+ */
 @Composable
-private fun TagButtons(modifier: Modifier = Modifier, context: Context, onOpenSettings: () -> Unit) {
+private fun CalibratingBanner(modifier: Modifier = Modifier, progress: Float) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        Text(
+            "Hold steady on smooth road — measuring your mount's baseline vibration",
+            color = Color(0xFFCFD8DC),
+            fontSize = 14.sp
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        LinearProgressIndicator(
+            progress = { progress },
+            modifier = Modifier.fillMaxWidth().height(8.dp),
+            color = Color(0xFFFFA726),
+            trackColor = Color(0xFF263238)
+        )
+    }
+}
+
+@Composable
+private fun TagButtons(
+    modifier: Modifier = Modifier,
+    context: Context,
+    onOpenSettings: () -> Unit,
+    tagsEnabled: Boolean = true
+) {
     var rangeOpen by remember { mutableStateOf(false) }
 
     fun tap(label: String, kind: TagKind) {
@@ -265,17 +333,22 @@ private fun TagButtons(modifier: Modifier = Modifier, context: Context, onOpenSe
 
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(modifier = Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            BigTagButton("POTHOLE", Color(0xFFEF5350), Modifier.weight(1f)) { tap("Pothole", TagKind.POINT) }
-            BigTagButton("BUMP", Color(0xFF66BB6A), Modifier.weight(1f)) { tap("Bump", TagKind.POINT) }
+            BigTagButton("POTHOLE", Color(0xFFEF5350), Modifier.weight(1f), enabled = tagsEnabled) {
+                tap("Pothole", TagKind.POINT)
+            }
+            BigTagButton("BUMP", Color(0xFF66BB6A), Modifier.weight(1f), enabled = tagsEnabled) {
+                tap("Bump", TagKind.POINT)
+            }
         }
         Row(modifier = Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            BigTagButton("SPEED\nBREAKER", Color(0xFFFFA726), Modifier.weight(1f)) {
+            BigTagButton("SPEED\nBREAKER", Color(0xFFFFA726), Modifier.weight(1f), enabled = tagsEnabled) {
                 tap("Speedbreaker", TagKind.POINT)
             }
             BigTagButton(
                 text = if (rangeOpen) "END ROUGH\nSTRETCH" else "START ROUGH\nSTRETCH",
                 color = if (rangeOpen) Color(0xFFEF5350) else Color(0xFF8D6E63),
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
+                enabled = tagsEnabled
             ) {
                 tap("Rough stretch", if (rangeOpen) TagKind.RANGE_END else TagKind.RANGE_START)
                 rangeOpen = !rangeOpen
@@ -313,9 +386,16 @@ private fun TagButtons(modifier: Modifier = Modifier, context: Context, onOpenSe
  * touch target in this screen is smaller than this.
  */
 @Composable
-private fun BigTagButton(text: String, color: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun BigTagButton(
+    text: String,
+    color: Color,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
     Button(
         onClick = onClick,
+        enabled = enabled,
         colors = ButtonDefaults.buttonColors(containerColor = color),
         shape = RoundedCornerShape(18.dp),
         modifier = modifier.fillMaxHeight()

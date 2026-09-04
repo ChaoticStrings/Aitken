@@ -11,9 +11,13 @@ import android.os.IBinder
 import com.aitken.app.AitkenUiState
 import com.aitken.app.SettingsStore
 import com.aitken.app.Tunables
+import com.aitken.backup.BackupAgent
+import com.aitken.classifier.ClassifierConfigLoader
 import com.aitken.location.AndroidGpsProvider
 import com.aitken.segment.NoiseFloorCalibrator
 import com.aitken.sensor.AndroidSensorStream
+import com.aitken.storage.AndroidSafStorageAdapter
+import com.aitken.storage.SharedPreferencesSafFolderGrant
 import com.aitken.tagging.TagKind
 import com.aitken.tagging.TagMatch
 import com.aitken.tagging.TagMatcher
@@ -51,9 +55,15 @@ import kotlin.math.abs
  * No network call exists anywhere on this path — [AndroidSensorStream],
  * [AndroidGpsProvider], and [SessionRecorder] are all local. The only
  * network-adjacent code in the whole app (SAF backup/config sync) lives in
- * `BackupAgent`/`ClassifierConfigLoader` (tickets 07/08), wired in
- * separately (ticket 12), never on this path — satisfies architecture
- * invariant 4 (no-network-required, scoped to Aitken's recording path).
+ * `BackupAgent`/`ClassifierConfigLoader` (tickets 07/08). Both are wired in
+ * here (ticket 12) but never on the sensor/GPS/recording path itself: a
+ * closed session's backup and the opportunistic config check each run on
+ * their own throwaway [Thread], started only after [startSession] has
+ * already begun (config check) or [RecordingPipeline.endSession] has
+ * already flushed and closed the session's files (backup) — satisfies
+ * architecture invariant 4 (no-network-required, scoped to Aitken's
+ * recording path) and `BackupAgent`/`ClassifierConfigLoader`'s own
+ * documented "never blocks or gates recording" guarantee.
  *
  * Turn suppression uses [Tunables.turnYawThresholdRadS], loaded fresh from
  * [SettingsStore] at the start of every session — a rider can change it
@@ -69,6 +79,8 @@ class AitkenRecordingService : Service() {
     private var pipeline: RecordingPipeline? = null
     private var sensorStream: AndroidSensorStream? = null
     private var gpsProvider: AndroidGpsProvider? = null
+    private var backupAgent: BackupAgent? = null
+    private var sessionDir: File? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -94,10 +106,21 @@ class AitkenRecordingService : Service() {
         val tunables = SettingsStore.load(this)
 
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        val sessionDir = File(getExternalFilesDir(null) ?: filesDir, "session_$stamp")
-        sessionDir.mkdirs()
+        val dir = File(getExternalFilesDir(null) ?: filesDir, "session_$stamp")
+        dir.mkdirs()
+        sessionDir = dir
 
-        val recorder = SessionRecorder(sessionDir)
+        val storage = AndroidSafStorageAdapter(this, SharedPreferencesSafFolderGrant(this))
+        backupAgent = BackupAgent(storage)
+        // Opportunistic, off the recording path (ticket 12) -- best-effort;
+        // nothing reads the result yet (that's ticket 09's job), this just
+        // keeps the cache warm for when something does. A missing grant or
+        // stale/never-synced config never gates this or any other session,
+        // per ClassifierConfigLoader's own "always falls back to cache"
+        // guarantee -- nothing here waits on this thread.
+        Thread { ClassifierConfigLoader(storage).checkForUpdate() }.start()
+
+        val recorder = SessionRecorder(dir)
         val tagMatcher = TagMatcher()
         val calibrator = NoiseFloorCalibrator(
             calibrationDurationMs = tunables.calibrationDurationMs,
@@ -107,12 +130,19 @@ class AitkenRecordingService : Service() {
         val newPipeline = RecordingPipeline(
             recorder = recorder,
             tagMatcher = tagMatcher,
-            onCalibrationDone = { AitkenUiState.phaseLabel.value = "RECORDING" },
+            onCalibrationDone = { shortStdThreshold ->
+                AitkenUiState.phaseLabel.value = "RECORDING"
+                AitkenUiState.calibratedThresholdM.value = shortStdThreshold
+            },
             calibrator = calibrator,
             endQuietMs = tunables.endQuietMs,
             minSegmentDurationMs = tunables.minSegmentDurationMs,
             onLiveVertical = { vertical -> AitkenUiState.pushSample(vertical) },
-            onSegmentClosedForUi = { segment -> AitkenUiState.pushSegment(segment) }
+            onSegmentClosedForUi = { segment -> AitkenUiState.pushSegment(segment) },
+            onCalibrationProgress = { fraction -> AitkenUiState.calibrationProgress.value = fraction },
+            // Live-editable mid-ride (ticket 21) -- re-read on every tap rather than
+            // snapshotted once like the rest of `tunables` above.
+            tagDebounceMs = { SettingsStore.load(this).tagDebounceMs }
         )
         pipeline = newPipeline
         AitkenUiState.phaseLabel.value = "CALIBRATING"
@@ -133,10 +163,24 @@ class AitkenRecordingService : Service() {
     private fun stopSession() {
         sensorStream?.stop()
         gpsProvider?.stop()
-        pipeline?.endSession() // force-closes any open segment; never silently drops it
+        pipeline?.endSession() // force-closes any open segment, then flushes and closes the files
         pipeline = null
         sensorStream = null
         gpsProvider = null
+
+        // Only after endSession() above has closed the files -- BackupAgent
+        // reads them straight off disk. Best-effort and off the main thread
+        // (ticket 12): a -1 (ungranted) or partial-copy result is accepted
+        // silently here, same as BackupAgent's own documented behavior;
+        // ticket 24 is what makes "ungranted" rare, not this call.
+        val dir = sessionDir
+        val agent = backupAgent
+        if (dir != null && agent != null) {
+            Thread { agent.enqueueBackup(dir) }.start()
+        }
+        sessionDir = null
+        backupAgent = null
+
         AitkenUiState.isRecording.value = false
         AitkenUiState.phaseLabel.value = "IDLE"
     }
