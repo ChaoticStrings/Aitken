@@ -33,8 +33,14 @@ import com.aitken.tagging.TagMatcher
 class RecordingPipeline(
     private val recorder: SessionRecorder,
     private val tagMatcher: TagMatcher,
-    /** Called once, with the session's calibrated short-window std threshold (ticket 22). */
-    private val onCalibrationDone: (Float) -> Unit = {},
+    /**
+     * Called once, with the session's calibrated short- and long-window std
+     * thresholds (short, then long) — ticket 22 (UI banner) only ever
+     * needed the short one; the long one was added for
+     * ride-data-analysis-update.md §4's config sidecar, which needs both to
+     * be forensically useful.
+     */
+    private val onCalibrationDone: (Float, Float) -> Unit = { _, _ -> },
     private val gravity: GravityEstimator = GravityEstimator(),
     private val verticalizer: Verticalizer = Verticalizer(),
     private val jerkFilter: JerkFilter = JerkFilter(),
@@ -116,16 +122,17 @@ class RecordingPipeline(
                 onCalibrationProgress(calibrator.progressFraction)
                 if (done) {
                     val shortThreshold = calibrator.shortStdThreshold()
+                    val longThreshold = calibrator.longStdThreshold()
                     detector = SegmentDetector(
                         shortWindow = calibrator.shortWindow,
                         longWindow = calibrator.longWindow,
                         shortStdThreshold = shortThreshold,
-                        longStdThreshold = calibrator.longStdThreshold(),
+                        longStdThreshold = longThreshold,
                         endQuietMs = endQuietMs,
                         minSegmentDurationMs = minSegmentDurationMs
                     )
                     phase = Phase.DETECTING
-                    onCalibrationDone(shortThreshold)
+                    onCalibrationDone(shortThreshold, longThreshold)
                 }
             }
             Phase.DETECTING -> {

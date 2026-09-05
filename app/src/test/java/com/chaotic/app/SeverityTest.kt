@@ -9,34 +9,41 @@ class SeverityTest {
 
     @Test
     fun `a peak close to the gravity baseline is mild`() {
-        // |12 - 9.81| = 2.19 < 5
-        assertEquals(Severity.MILD, severityOf(peakM = 12f, tunables = tunables))
+        // peakM is already a gravity-relative deviation (SegmentDetector.accumulate()
+        // computes abs(vertical - 9.81) directly, per ride-data-analysis-update.md §5) --
+        // severityOf buckets it as-is, no further subtraction.
+        assertEquals(Severity.MILD, severityOf(peakM = 2f, tunables = tunables))
     }
 
     @Test
     fun `a moderate deviation from baseline`() {
-        // |20 - 9.81| = 10.19; 5 <= 10.19 < 15
-        assertEquals(Severity.MODERATE, severityOf(peakM = 20f, tunables = tunables))
+        // 5 <= 10 < 15
+        assertEquals(Severity.MODERATE, severityOf(peakM = 10f, tunables = tunables))
     }
 
     @Test
     fun `a large deviation from baseline is severe`() {
-        // |30 - 9.81| = 20.19 >= 15
-        assertEquals(Severity.SEVERE, severityOf(peakM = 30f, tunables = tunables))
+        // 20 >= 15
+        assertEquals(Severity.SEVERE, severityOf(peakM = 20f, tunables = tunables))
     }
 
     @Test
-    fun `a near-weightless moment (low peakM) also registers as a real deviation`() {
-        // peakM is always >= 0 by construction (SegmentDetector tracks abs(vertical)).
-        // |0 - 9.81| = 9.81; 5 <= 9.81 < 15 -- MODERATE, not MILD, even though peakM itself is small.
-        assertEquals(Severity.MODERATE, severityOf(peakM = 0f, tunables = tunables))
+    fun `zero deviation is mild`() {
+        // A peakM of exactly 0 means the segment's worst sample sat exactly
+        // at the gravity baseline -- genuinely no deviation, so MILD is
+        // correct. (Pre-fix, peakM was a raw abs(vertical) magnitude and 0f
+        // here actually meant "vertical == 0", i.e. free-fall -- a real
+        // 9.81 deviation the old re-subtraction happened to catch, but only
+        // as a side effect of the same bug §5 removes. That scenario no
+        // longer arises this way: SegmentDetector now reports free-fall
+        // directly as peakM ~= 9.81.)
+        assertEquals(Severity.MILD, severityOf(peakM = 0f, tunables = tunables))
     }
 
     @Test
     fun `thresholds are read from the injected Tunables, not hardcoded`() {
         val custom = Tunables(mildSeverityDeviation = 1f, moderateSeverityDeviation = 2f)
-        // |12 - 9.81| = 2.19 -- SEVERE under these custom (tight) thresholds,
-        // even though the same value was MILD under defaults above.
+        // 12 -- SEVERE under these custom (tight) thresholds.
         assertEquals(Severity.SEVERE, severityOf(peakM = 12f, tunables = custom))
     }
 }

@@ -47,6 +47,19 @@ data class OpenSegment(
  * threshold doesn't transfer across phone mounts, vehicles, or road
  * surfaces, and would quietly skew which bumps count as signal across the
  * dataset.
+ *
+ * [gravityBaselineMs2] anchors [peakM]/[rmsM] to *deviation from resting
+ * gravity*, not raw magnitude — ride-data-analysis-update.md §5's confirmed
+ * bug: tracking `abs(verticalM)` instead of `abs(verticalM -
+ * gravityBaselineMs2)` misattributes the peak to whichever sample has the
+ * largest raw magnitude, which silently favors an ordinary positive-side
+ * spike over a genuinely larger negative-side swing (a sample well below
+ * zero can have a *smaller* `abs(vertical)` than a merely-average positive
+ * one, even though its true deviation from gravity is the bigger event) —
+ * measured at a ~25% segment-misattribution rate across three real ride
+ * sessions. [Severity.severityOf] must consume the resulting [peakM]
+ * directly as-is; it is already a deviation, not a raw magnitude needing a
+ * second gravity subtraction.
  */
 class SegmentDetector(
     private val shortWindow: RollingStats = RollingStats(windowSamples = 20),
@@ -54,7 +67,8 @@ class SegmentDetector(
     private val shortStdThreshold: Float = 2f,
     private val longStdThreshold: Float = 1f,
     private val endQuietMs: Long = 500L,
-    private val minSegmentDurationMs: Long = 30L
+    private val minSegmentDurationMs: Long = 30L,
+    private val gravityBaselineMs2: Float = 9.81f
 ) {
 
     private enum class Phase { IDLE, OPEN }
@@ -116,7 +130,7 @@ class SegmentDetector(
     }
 
     private fun accumulate(verticalM: Float) {
-        val magnitude = abs(verticalM)
+        val magnitude = abs(verticalM - gravityBaselineMs2)
         if (magnitude > peakM) peakM = magnitude
         sumSq += magnitude * magnitude
         signalSamples++

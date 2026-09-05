@@ -1,7 +1,5 @@
 package com.aitken.app
 
-import kotlin.math.abs
-
 /**
  * Placeholder relative severity bucketing for the M/D graph's segment
  * coloring — NOT a calibrated M-scale. Prototype 1's
@@ -14,18 +12,21 @@ import kotlin.math.abs
  */
 enum class Severity { MILD, MODERATE, SEVERE }
 
-private const val GRAVITY_BASELINE_MS2 = 9.81f
-
 /**
- * How far [peakM] (always >= 0 — `SegmentDetector` tracks peak
- * `abs(vertical)`) deviates from the resting gravity baseline in either
- * direction, bucketed against [tunables]' `[CALIBRATE]` thresholds.
+ * Buckets [peakM] against [tunables]' `[CALIBRATE]` thresholds.
+ *
+ * [peakM] is already a deviation from the resting gravity baseline —
+ * `SegmentDetector.accumulate()` computes `abs(verticalM - 9.81)` directly
+ * (ride-data-analysis-update.md §5) — so no further gravity subtraction
+ * happens here. (Before that fix, `peakM` was a raw `abs(vertical)`
+ * magnitude and this function re-subtracted gravity itself; re-subtracting
+ * now would double-apply the correction and silently reintroduce the same
+ * misattribution the §5 fix removed.)
  */
 fun severityOf(peakM: Float, tunables: Tunables): Severity {
-    val deviation = abs(peakM - GRAVITY_BASELINE_MS2)
     return when {
-        deviation < tunables.mildSeverityDeviation -> Severity.MILD
-        deviation < tunables.moderateSeverityDeviation -> Severity.MODERATE
+        peakM < tunables.mildSeverityDeviation -> Severity.MILD
+        peakM < tunables.moderateSeverityDeviation -> Severity.MODERATE
         else -> Severity.SEVERE
     }
 }

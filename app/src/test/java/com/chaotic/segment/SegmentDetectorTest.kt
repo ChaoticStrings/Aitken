@@ -27,9 +27,10 @@ import org.junit.Test
  *   - @50ms: buf=[0,0]            std=0            -> quiet,
  *            quietMs=(50-20)=30 >= 25 -> CLOSES
  *            durationNs = lastSignalNs(20ms) - startNs(10ms) = 10ms
- *            peakM=20 (only @10ms and @20ms samples accumulated, both v
- *            values 20 and 0 -> peak stays 20)
- *            rmsM = sqrt((20^2 + 0^2) / 2) = sqrt(200) ~= 14.142
+ *            peakM: deviation from the 9.81 gravity baseline (§5 fix), not
+ *            raw magnitude -> devs of the two accumulated samples (v=20,
+ *            v=0) are |20-9.81|=10.19 and |0-9.81|=9.81 -> peak=10.19
+ *            rmsM = sqrt((10.19^2 + 9.81^2) / 2) ~= 10.002
  */
 class SegmentDetectorTest {
 
@@ -72,7 +73,9 @@ class SegmentDetectorTest {
         val open = detector.currentOpenSegment()
         assertNotNull(open)
         assertEquals(10 * ms, open!!.startNs)
-        assertEquals(20f, open!!.peakM, 0.001f)
+        // Deviation from the 9.81 gravity baseline, not raw magnitude:
+        // |20 - 9.81| = 10.19 (§5 fix — was 20f under the old abs(vertical) bug).
+        assertEquals(10.19f, open!!.peakM, 0.001f)
     }
 
     @Test
@@ -128,8 +131,53 @@ class SegmentDetectorTest {
         val closed = detector.push(50 * ms, 0f, turning = false)
 
         assertNotNull(closed)
-        assertEquals(20f, closed!!.peakM, 0.001f)
-        assertEquals(14.142f, closed!!.rmsM, 0.01f)
+        // Deviation from the 9.81 gravity baseline, not raw magnitude (§5 fix):
+        // samples accumulated are v=20 (@10ms) and v=0 (@20ms) ->
+        // devs = |20-9.81|=10.19, |0-9.81|=9.81 -> peak=10.19,
+        // rms = sqrt((10.19^2 + 9.81^2) / 2) ~= 10.002.
+        // (Old abs(vertical) bug would have reported peak=20f, rms=14.142f.)
+        assertEquals(10.19f, closed!!.peakM, 0.001f)
+        assertEquals(10.002f, closed!!.rmsM, 0.01f)
+    }
+
+    @Test
+    fun `peak tracks true deviation from gravity, not raw magnitude — a bigger negative swing outranks a smaller positive spike`() {
+        // Regression test for ride-data-analysis-update.md §5: the shipped
+        // bug tracked abs(verticalM) instead of abs(verticalM - 9.81), so a
+        // sample well below zero could read as a *smaller* "magnitude" than
+        // an ordinary positive spike even though its true deviation from
+        // gravity was the bigger event — exactly the -17.1/+20 shape found
+        // in session 124056's real data (true devs 27.0 and 36.5 for two
+        // such samples there).
+        //
+        // Hand-traced against sharedShapeDetector's shape (window=2,
+        // threshold=5f, endQuietMs=25L):
+        //   @0ms  v=0:     buf=[0]              std=0            -> IDLE
+        //   @10ms v=-17.1: buf=[0,-17.1] mean=-8.55 std~=8.55     -> OPENS
+        //                  accumulate(-17.1): dev=|-17.1-9.81|=26.91 -> peak=26.91
+        //   @20ms v=20:    buf=[-17.1,20] mean=1.45 std~=18.55    -> still signal
+        //                  accumulate(20): dev=|20-9.81|=10.19 < 26.91 -> peak stays 26.91
+        //                  (old buggy formula: abs(20)=20 > abs(-17.1)=17.1,
+        //                  would have WRONGLY overwritten peak to 20)
+        //   @30ms v=0:     buf=[20,0] mean=10 std=10              -> still signal
+        //                  accumulate(0): dev=9.81 < 26.91 -> peak stays 26.91
+        //   @40ms v=0:     buf=[0,0] std=0 -> quiet, quietMs=10<25 -> stays OPEN
+        //   @50ms v=0:     buf=[0,0] std=0 -> quiet, quietMs=20<25 -> stays OPEN
+        //   @60ms v=0:     buf=[0,0] std=0 -> quiet, quietMs=30>=25 -> CLOSES
+        //   durationNs = lastSignalNs(30ms) - startNs(10ms) = 20ms
+        //   rms over devs [26.91, 10.19, 9.81] = sqrt(924.22/3) ~= 17.552
+        val detector = sharedShapeDetector(minSegmentDurationMs = 5L)
+        detector.push(0L, 0f, turning = false)
+        detector.push(10 * ms, -17.1f, turning = false)
+        detector.push(20 * ms, 20f, turning = false)
+        detector.push(30 * ms, 0f, turning = false)
+        detector.push(40 * ms, 0f, turning = false)
+
+        val closed = detector.push(60 * ms, 0f, turning = false)
+
+        assertNotNull(closed)
+        assertEquals(26.91f, closed!!.peakM, 0.01f)
+        assertEquals(17.552f, closed!!.rmsM, 0.01f)
     }
 
     @Test

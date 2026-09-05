@@ -130,9 +130,14 @@ class AitkenRecordingService : Service() {
         val newPipeline = RecordingPipeline(
             recorder = recorder,
             tagMatcher = tagMatcher,
-            onCalibrationDone = { shortStdThreshold ->
+            onCalibrationDone = { shortStdThreshold, longStdThreshold ->
                 AitkenUiState.phaseLabel.value = "RECORDING"
                 AitkenUiState.calibratedThresholdM.value = shortStdThreshold
+                // ride-data-analysis-update.md §4: record which Tunables were
+                // active and what they actually calibrated to, so a session's
+                // detection behavior is reconstructable from its own files
+                // afterward instead of requiring a forensic replay.
+                recorder.writeConfig(tunables, shortStdThreshold, longStdThreshold)
             },
             calibrator = calibrator,
             endQuietMs = tunables.endQuietMs,
@@ -157,6 +162,11 @@ class AitkenRecordingService : Service() {
         sensors.start { sample ->
             val turning = abs(sample.gyroZ ?: 0f) >= tunables.turnYawThresholdRadS
             newPipeline.onSensorSample(sample, turning)
+            // Recommended pipeline fix #5 (ride-data-analysis-update.md): surface
+            // a still-open segment's live duration so the session screen can flag
+            // it before it ever reaches the 56s/104s/311s territory the doc found.
+            val open = newPipeline.currentOpenSegment()
+            AitkenUiState.openSegmentDurationMs.value = open?.let { (it.lastSignalNs - it.startNs) / 1_000_000L }
         }
     }
 

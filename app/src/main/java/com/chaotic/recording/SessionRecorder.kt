@@ -1,5 +1,6 @@
 package com.aitken.recording
 
+import com.aitken.app.Tunables
 import com.aitken.location.GpsFix
 import com.aitken.segment.ClosedSegment
 import java.io.BufferedWriter
@@ -8,11 +9,13 @@ import java.io.FileWriter
 import java.util.Locale
 
 /**
- * Crash-safe incremental writer owning all four session files (sensor, gps,
- * segments, labels) behind one interface, centralizing the flush guarantee
- * so it lives in exactly one place. Each file carries its own independent
- * `schema_version` (architecture invariant 2, T2) since the four evolve at
- * different rates.
+ * Crash-safe incremental writer owning all five session files (sensor, gps,
+ * segments, labels, and config) behind one interface, centralizing the
+ * flush guarantee so it lives in exactly one place. Each of the four
+ * incremental files carries its own independent `schema_version`
+ * (architecture invariant 2, T2) since they evolve at different rates;
+ * [writeConfig]'s config.json is written once, not incrementally, so it
+ * carries its version as a plain field inside the JSON object instead.
  *
  * Primary writes always go straight to app-private storage — a plain
  * [File] the caller provides. The session-file format itself is *not*
@@ -20,6 +23,9 @@ import java.util.Locale
  * real second adapter exists for it, it's an internal format choice, not a
  * vendor dependency), so this class talks to java.io directly and is fully
  * testable on the JVM with real temp files, no Android framework needed.
+ * [writeConfig]'s hand-rolled JSON (rather than `org.json`, which is an
+ * Android-framework stub outside Robolectric) keeps that same guarantee for
+ * the fifth file.
  *
  * `speedMps` on [writeClosedSegment]/[writeLabel] and `epochMs` everywhere
  * are caller-supplied rather than this class holding a GpsProvider or clock
@@ -41,8 +47,19 @@ import java.util.Locale
  * ticket doesn't create a forward dependency on a module that doesn't exist
  * yet, and so this class stays decoupled from the tagging package in
  * general.
+ *
+ * [writeConfig] is the fifth file (ride-data-analysis-update.md §4):
+ * previously nothing recorded which [Tunables] were active for a session,
+ * so a session's own detection behavior couldn't be reconstructed from its
+ * data after the fact — §1's 12-vs-132-segment swing between two sessions
+ * of the *same physical road* turned out to trace entirely to calibration
+ * conditions this file would have made visible immediately instead of
+ * requiring a forensic replay. Written once, right after calibration
+ * completes (the earliest point both the tunables and the two calibrated
+ * thresholds are known), not incrementally like the other four — nothing
+ * about it changes mid-session.
  */
-class SessionRecorder(sessionDir: File, flushEveryNRows: Int = 100) {
+class SessionRecorder(private val sessionDir: File, flushEveryNRows: Int = 100) {
 
     private val sensorFile = CsvFile(
         File(sessionDir, "sensor.csv"),
@@ -103,6 +120,38 @@ class SessionRecorder(sessionDir: File, flushEveryNRows: Int = 100) {
         )
     }
 
+    /**
+     * Writes `config.json`: the [Tunables] active for this session plus the
+     * two thresholds [NoiseFloorCalibrator] actually derived from them,
+     * side by side — the sidecar ride-data-analysis-update.md §4 asks for.
+     * Call once, as soon as calibration completes; calling it again
+     * overwrites the file (harmless in practice, since nothing about a
+     * session's tunables or calibrated thresholds changes after that point
+     * except [Tunables.tagDebounceMs], which is deliberately re-read live
+     * per tap rather than snapshotted, so a stale copy of it here is
+     * expected, not a bug).
+     */
+    fun writeConfig(tunables: Tunables, calibratedShortStdThreshold: Float, calibratedLongStdThreshold: Float) {
+        val json = buildString {
+            append("{\n")
+            append("  \"schemaVersion\": $SCHEMA_VERSION,\n")
+            append("  \"calibrationDurationMs\": ${tunables.calibrationDurationMs},\n")
+            append("  \"stdFactor\": ${tunables.stdFactor},\n")
+            append("  \"floorStd\": ${tunables.floorStd},\n")
+            append("  \"endQuietMs\": ${tunables.endQuietMs},\n")
+            append("  \"minSegmentDurationMs\": ${tunables.minSegmentDurationMs},\n")
+            append("  \"turnYawThresholdRadS\": ${tunables.turnYawThresholdRadS},\n")
+            append("  \"mildSeverityDeviation\": ${tunables.mildSeverityDeviation},\n")
+            append("  \"moderateSeverityDeviation\": ${tunables.moderateSeverityDeviation},\n")
+            append("  \"tagDebounceMs\": ${tunables.tagDebounceMs},\n")
+            append("  \"longSegmentWarningMs\": ${tunables.longSegmentWarningMs},\n")
+            append("  \"calibratedShortStdThreshold\": $calibratedShortStdThreshold,\n")
+            append("  \"calibratedLongStdThreshold\": $calibratedLongStdThreshold\n")
+            append("}\n")
+        }
+        File(sessionDir, "config.json").writeText(json)
+    }
+
     fun writeLabel(
         timestampSensorNs: Long,
         kind: String,
@@ -120,7 +169,8 @@ class SessionRecorder(sessionDir: File, flushEveryNRows: Int = 100) {
         )
     }
 
-    /** Flushes and closes all four files. Call when a session ends. */
+    /** Flushes and closes all four incrementally-written CSV files. Call when a session ends.
+     *  ([writeConfig]'s config.json needs no closing — it's one synchronous write, not a stream.) */
     fun close() {
         sensorFile.close()
         gpsFile.close()

@@ -43,6 +43,15 @@ object AitkenUiState {
     val calibrationProgress = mutableStateOf(0f)
     /** The session's calibrated short-window std threshold, null until calibration completes. */
     val calibratedThresholdM = mutableStateOf<Float?>(null)
+    /**
+     * How long (ms) the currently-open segment has been open, null while
+     * IDLE/CALIBRATING or between segments. Feeds the long-segment warning
+     * banner (recommended pipeline fix #5, ride-data-analysis-update.md) —
+     * updated on every sensor sample by [AitkenRecordingService] from
+     * [com.aitken.recording.RecordingPipeline.currentOpenSegment], the same
+     * accessor the tap-matching path already uses.
+     */
+    val openSegmentDurationMs = mutableStateOf<Long?>(null)
 
     /**
      * add() then removeAt(0) are two separate SnapshotStateList writes;
@@ -75,5 +84,6 @@ object AitkenUiState {
         lastTagResult.value = null
         calibrationProgress.value = 0f
         calibratedThresholdM.value = null
+        openSegmentDurationMs.value = null
     }
 }

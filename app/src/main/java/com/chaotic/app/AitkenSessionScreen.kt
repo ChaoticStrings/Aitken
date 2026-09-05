@@ -16,11 +16,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -131,15 +133,31 @@ fun AitkenSessionScreen() {
                 CalibratingBanner(progress = calibrationProgress)
             } else {
                 val lastTagResult by AitkenUiState.lastTagResult
-                // Confidence indicator removed here -- Aitken-phase (ticket 13's
-                // ClassifierRunner), not Luna. AitkenUiState.confidenceLabel stays
-                // commented out below, not deleted, for ticket 13 to pick back up.
-                Text(
-                    lastTagResult ?: "Ride safe.",
-                    color = Color(0xFFCFD8DC),
-                    fontSize = 15.sp,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                val openSegmentDurationMs by AitkenUiState.openSegmentDurationMs
+                val longSegmentWarningMs = tunables.longSegmentWarningMs
+                // Recommended pipeline fix #5 (ride-data-analysis-update.md):
+                // flag a stuck-open segment live, in place of the normal status
+                // line, rather than only discovering the 56s/104s/311s pattern
+                // later from the data.
+                if (openSegmentDurationMs != null && openSegmentDurationMs!! >= longSegmentWarningMs) {
+                    Text(
+                        "⚠ Segment open ${openSegmentDurationMs!! / 1000}s — road may not be reading smooth again",
+                        color = Color(0xFFFFA726),
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    // Confidence indicator removed here -- Aitken-phase (ticket 13's
+                    // ClassifierRunner), not Luna. AitkenUiState.confidenceLabel stays
+                    // commented out below, not deleted, for ticket 13 to pick back up.
+                    Text(
+                        lastTagResult ?: "Ride safe.",
+                        color = Color(0xFFCFD8DC),
+                        fontSize = 15.sp,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             }
 
             TagButtons(
@@ -326,9 +344,39 @@ private fun TagButtons(
     tagsEnabled: Boolean = true
 ) {
     var rangeOpen by remember { mutableStateOf(false) }
+    // Prevention over cure (ride-data-analysis-update.md §3, as scoped for
+    // Luna): the whole reason §1's calibration-fragility bug had a real
+    // second session to compare against is that an unfortunately-timed
+    // bump landed on this exact button mid-ride, ending 124056 early and
+    // forcing 125553 to calibrate while already moving. A confirm step
+    // can't fix calibration fragility itself, but it stops the accidental
+    // tap that keeps causing it in the first place -- cheaper and more
+    // direct than detecting or compensating for the split after the fact.
+    var showStopConfirm by remember { mutableStateOf(false) }
 
     fun tap(label: String, kind: TagKind) {
         AitkenRecordingService.instance?.tag(kind, label)
+    }
+
+    if (showStopConfirm) {
+        AlertDialog(
+            onDismissRequest = { showStopConfirm = false },
+            title = { Text("Confirm stop session?") },
+            text = { Text("This ends the ride and closes out the recording. You can't resume it afterward.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showStopConfirm = false
+                    context.stopService(Intent(context, AitkenRecordingService::class.java))
+                }) {
+                    Text("STOP SESSION", color = Color(0xFFEF5350), fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showStopConfirm = false }) {
+                    Text("CANCEL")
+                }
+            }
+        )
     }
 
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -362,7 +410,8 @@ private fun TagButtons(
                 Text("SETTINGS", fontSize = 18.sp, fontWeight = FontWeight.Bold)
             }
             Button(
-                onClick = { context.stopService(Intent(context, AitkenRecordingService::class.java)) },
+                // No longer stops immediately on tap -- see showStopConfirm above.
+                onClick = { showStopConfirm = true },
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB71C1C)),
                 modifier = Modifier.weight(1f).fillMaxHeight()
             ) {

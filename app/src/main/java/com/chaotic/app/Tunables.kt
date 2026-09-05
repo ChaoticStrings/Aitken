@@ -43,5 +43,19 @@ data class Tunables(
      * Unlike every other field here, this one is read fresh on every tap
      * rather than once per session — see `AitkenRecordingService`.
      */
-    val tagDebounceMs: Long = 500L
+    val tagDebounceMs: Long = 500L,
+    /**
+     * A currently-open segment reads as "suspiciously long" on the live
+     * session screen once it's been open this long (recommended pipeline
+     * fix #5, ride-data-analysis-update.md) — the live-screen counterpart
+     * to that doc's forensic finding that a single road feature spanning
+     * 5+ minutes (124056's 311s segment) should never happen and nothing
+     * called attention to it while riding. 20s is well above any
+     * legitimate single bump/pothole/speedbreaker (all under 5s in the
+     * doc's clean anchor set, §2) and above a deliberately-tagged "Rough
+     * stretch" range too, while sitting well below the pathological 56s/
+     * 104s/311s segments that motivated this fix — so it flags the merge
+     * failure early without false-triggering on ordinary riding.
+     */
+    val longSegmentWarningMs: Long = 20_000L
 )

@@ -55,6 +55,7 @@ fun SettingsScreen(onBack: () -> Unit, onOpenStorageGrant: () -> Unit) {
     var mildDeviation by remember { mutableFloatStateOf(current.mildSeverityDeviation) }
     var moderateDeviation by remember { mutableFloatStateOf(current.moderateSeverityDeviation) }
     var tagDebounceMs by remember { mutableFloatStateOf(current.tagDebounceMs.toFloat()) }
+    var longSegmentWarningSec by remember { mutableFloatStateOf(current.longSegmentWarningMs / 1000f) }
 
     Column(
         modifier = Modifier
@@ -177,6 +178,19 @@ fun SettingsScreen(onBack: () -> Unit, onOpenStorageGrant: () -> Unit) {
             valueLabel = "${tagDebounceMs.toInt()}ms"
         )
 
+        BigSlider(
+            label = "Long-segment warning",
+            help = "A road feature spanning this long almost never happens — usually it " +
+                "means detection got stuck open (see settings above) instead of finding " +
+                "the road smooth again. The session screen flags it live so you notice " +
+                "during the ride instead of only discovering it later in the data.",
+            value = longSegmentWarningSec,
+            onValueChange = { longSegmentWarningSec = it },
+            valueRange = 5f..60f,
+            steps = 10, // 5-second increments
+            valueLabel = "${longSegmentWarningSec.toInt()}s"
+        )
+
         OutlinedButton(
             onClick = onOpenStorageGrant,
             modifier = Modifier.fillMaxWidth().height(56.dp)
@@ -198,7 +212,8 @@ fun SettingsScreen(onBack: () -> Unit, onOpenStorageGrant: () -> Unit) {
                             turnYawThresholdRadS = turnThreshold,
                             mildSeverityDeviation = mildDeviation,
                             moderateSeverityDeviation = moderateDeviation,
-                            tagDebounceMs = tagDebounceMs.toLong()
+                            tagDebounceMs = tagDebounceMs.toLong(),
+                            longSegmentWarningMs = (longSegmentWarningSec * 1000).toLong()
                         )
                     )
                     onBack()

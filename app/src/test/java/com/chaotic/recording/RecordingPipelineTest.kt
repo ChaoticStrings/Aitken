@@ -42,7 +42,7 @@ class RecordingPipelineTest {
 
     private fun newPipeline(
         tagMatcher: TagMatcher = TagMatcher(),
-        onCalibrationDone: (Float) -> Unit = {},
+        onCalibrationDone: (Float, Float) -> Unit = { _, _ -> },
         onCalibrationProgress: (Float) -> Unit = {},
         tagDebounceMs: () -> Long = { 500L },
         now: () -> Long = { 0L }
@@ -71,10 +71,12 @@ class RecordingPipelineTest {
     @Test
     fun `calibration phase writes sensor rows but produces no segments`() {
         var calibrationDoneCalls = 0
-        var reportedThreshold = -1f
-        val pipeline = newPipeline(onCalibrationDone = { threshold ->
+        var reportedShortThreshold = -1f
+        var reportedLongThreshold = -1f
+        val pipeline = newPipeline(onCalibrationDone = { shortThreshold, longThreshold ->
             calibrationDoneCalls++
-            reportedThreshold = threshold
+            reportedShortThreshold = shortThreshold
+            reportedLongThreshold = longThreshold
         })
 
         pipeline.onSensorSample(sample(0L, 0f), turning = false)
@@ -83,8 +85,11 @@ class RecordingPipelineTest {
 
         assertEquals(1, calibrationDoneCalls)
         // Flat 0f calibration -> std=0, floors to 0.05, threshold = 0.05*3 = 0.15,
-        // same trace as NoiseFloorCalibratorTest's "floor applies" case.
-        assertEquals(0.15f, reportedThreshold, 0.001f)
+        // same trace as NoiseFloorCalibratorTest's "floor applies" case, and
+        // identical for both windows here since short/long are both size-2
+        // over the same flat data.
+        assertEquals(0.15f, reportedShortThreshold, 0.001f)
+        assertEquals(0.15f, reportedLongThreshold, 0.001f)
         val sensorLines = File(tempFolder.root, "sensor.csv").readLines()
         assertEquals(4, sensorLines.size) // header + 3 rows
         val segmentLines = File(tempFolder.root, "segments.csv").readLines()
@@ -126,9 +131,12 @@ class RecordingPipelineTest {
 
         val segmentLines = File(tempFolder.root, "segments.csv").readLines()
         assertEquals(2, segmentLines.size) // header + 1 closed segment
-        // start=30ms, duration=10ms (30ms->40ms, excludes the quiet tail),
-        // peak=5, rms=sqrt((5^2+0^2)/2)=3.536, speed=6 (from the GPS fix), epoch=9999
-        assertEquals("1,30000000,10000000,5.000,3.536,6.000,9999", segmentLines[1])
+        // start=30ms, duration=10ms (30ms->40ms, excludes the quiet tail).
+        // peak/rms are gravity-relative deviations (§5 fix), not raw magnitude:
+        // samples are v=5 (@30ms) and v=0 (@40ms) -> devs |5-9.81|=4.81,
+        // |0-9.81|=9.81 -> peak=9.81, rms=sqrt((4.81^2+9.81^2)/2)~=7.726.
+        // speed=6 (from the GPS fix), epoch=9999
+        assertEquals("1,30000000,10000000,9.810,7.726,6.000,9999", segmentLines[1])
 
         // Reached TagMatcher: a tap shortly after matches via lookback.
         val tap = tagMatcher.match(tapTimestampNs = 45 * ms, kind = TagKind.POINT, openSegment = null)
@@ -150,8 +158,9 @@ class RecordingPipelineTest {
 
         val segmentLines = File(tempFolder.root, "segments.csv").readLines()
         assertEquals(2, segmentLines.size)
+        // Same v=5/v=0 trace as above -> peak=9.81, rms=7.726 (§5 fix).
         // No GPS fix was ever pushed in this test -> speed cell is blank.
-        assertEquals("1,30000000,10000000,5.000,3.536,,5555", segmentLines[1])
+        assertEquals("1,30000000,10000000,9.810,7.726,,5555", segmentLines[1])
     }
 
     @Test

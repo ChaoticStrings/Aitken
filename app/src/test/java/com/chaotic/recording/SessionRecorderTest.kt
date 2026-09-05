@@ -1,8 +1,10 @@
 package com.aitken.recording
 
+import com.aitken.app.Tunables
 import com.aitken.location.GpsFix
 import com.aitken.segment.ClosedSegment
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -24,6 +26,7 @@ class SessionRecorderTest {
     private fun gpsFile(): File = File(tempFolder.root, "gps.csv")
     private fun segmentsFile(): File = File(tempFolder.root, "segments.csv")
     private fun labelsFile(): File = File(tempFolder.root, "labels.csv")
+    private fun configFile(): File = File(tempFolder.root, "config.json")
 
     @Test
     fun `writeSensorSample writes header and row with locale-safe fixed-point formatting`() {
@@ -112,6 +115,61 @@ class SessionRecorderTest {
         val lines = labelsFile().readLines()
         assertEquals("1,9000,POINT,8000,Pothole,150,1800000000500", lines[1])
         assertEquals("1,9500,POINT,,Pothole,,1800000001000", lines[2])
+    }
+
+    @Test
+    fun `writeConfig records the active tunables and both calibrated thresholds, independent of the CSV flush cycle`() {
+        val recorder = SessionRecorder(tempFolder.root)
+
+        // Deliberately mirrors 125553's real numbers (ride-data-analysis-update.md
+        // §1/§4) -- the case that motivated this fix.
+        val tunables = Tunables(
+            calibrationDurationMs = 10_000L,
+            stdFactor = 1.5f,
+            floorStd = 0.05f,
+            endQuietMs = 500L,
+            minSegmentDurationMs = 30L,
+            turnYawThresholdRadS = 1.0f,
+            mildSeverityDeviation = 5f,
+            moderateSeverityDeviation = 15f,
+            tagDebounceMs = 500L,
+            longSegmentWarningMs = 20_000L
+        )
+        recorder.writeConfig(tunables, calibratedShortStdThreshold = 2.81f, calibratedLongStdThreshold = 3.8f)
+
+        // No recorder.close() call -- unlike the four CSVs, config.json is a
+        // single synchronous write, not buffered, so it's on disk immediately.
+        assertEquals(
+            "{\n" +
+                "  \"schemaVersion\": 1,\n" +
+                "  \"calibrationDurationMs\": 10000,\n" +
+                "  \"stdFactor\": 1.5,\n" +
+                "  \"floorStd\": 0.05,\n" +
+                "  \"endQuietMs\": 500,\n" +
+                "  \"minSegmentDurationMs\": 30,\n" +
+                "  \"turnYawThresholdRadS\": 1.0,\n" +
+                "  \"mildSeverityDeviation\": 5.0,\n" +
+                "  \"moderateSeverityDeviation\": 15.0,\n" +
+                "  \"tagDebounceMs\": 500,\n" +
+                "  \"longSegmentWarningMs\": 20000,\n" +
+                "  \"calibratedShortStdThreshold\": 2.81,\n" +
+                "  \"calibratedLongStdThreshold\": 3.8\n" +
+                "}\n",
+            configFile().readText()
+        )
+    }
+
+    @Test
+    fun `writeConfig called twice overwrites rather than appending`() {
+        val recorder = SessionRecorder(tempFolder.root)
+
+        recorder.writeConfig(Tunables(stdFactor = 1.5f), 2.2f, 3.0f)
+        recorder.writeConfig(Tunables(stdFactor = 3.0f), 4.4f, 6.0f)
+
+        val content = configFile().readText()
+        assertTrue(content.contains("\"stdFactor\": 3.0"))
+        assertTrue(!content.contains("\"stdFactor\": 1.5"))
+        assertEquals(1, content.split("\"stdFactor\"").size - 1) // exactly one occurrence, not appended
     }
 
     @Test
