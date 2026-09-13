@@ -1,0 +1,3123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aitken Workbench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+:root{
+  --bg-void:#0A0D12;
+  --bg-panel:#10141B;
+  --bg-raised:#171C24;
+  --bg-hover:#1E242E;
+  --bg-input:#0D1117;
+  --line:#242B36;
+  --line-bright:#333D4C;
+  --text:#E7EBF0;
+  --text-dim:#8993A4;
+  --text-faint:#566072;
+  --accent:#4FC3F7;
+  --accent-dim:#2B7A9E;
+  --recompute:#B39DDB;
+  --sev-0:#3C8F4A;
+  --sev-mid:#C7CB3B;
+  --sev-hi:#F09330;
+  --sev-crit:#D6483F;
+  --range-tag:#C776DD;
+  --pothole:#EF5350;
+  --bump:#66BB6A;
+  --speedbreaker:#FFA726;
+  --warn:#FFB74D;
+  --danger:#EF5350;
+  --good:#66BB6A;
+  --font-ui:'Manrope',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Consolas,monospace;
+  --radius:3px;
+}
+*{box-sizing:border-box;}
+html,body{height:100%;}
+body{
+  margin:0;
+  background:var(--bg-void);
+  color:var(--text);
+  font-family:var(--font-ui);
+  font-size:13px;
+  overflow:hidden;
+  min-width:1100px;
+}
+button{
+  font-family:var(--font-ui);
+  font-size:12px;
+  font-weight:600;
+  color:var(--text);
+  background:var(--bg-raised);
+  border:1px solid var(--line-bright);
+  border-radius:var(--radius);
+  padding:6px 10px;
+  cursor:pointer;
+  transition:background .1s ease, border-color .1s ease;
+}
+button:hover:not(:disabled){background:var(--bg-hover);border-color:var(--accent-dim);}
+button:active:not(:disabled){transform:translateY(1px);}
+button:disabled{opacity:.35;cursor:not-allowed;}
+button.primary{background:var(--accent-dim);border-color:var(--accent);color:#EAF7FF;}
+button.primary:hover:not(:disabled){background:#347F9F;}
+button.danger-btn{border-color:var(--danger);color:#FFD9D6;}
+button.danger-btn:hover:not(:disabled){background:#3A1E1D;}
+button.active-toggle{background:var(--accent-dim);border-color:var(--accent);color:#fff;}
+select,input[type=text],input[type=number]{
+  font-family:var(--font-ui);
+  font-size:12px;
+  color:var(--text);
+  background:var(--bg-input);
+  border:1px solid var(--line-bright);
+  border-radius:var(--radius);
+  padding:5px 7px;
+}
+input[type=checkbox]{accent-color:var(--accent);}
+label{font-size:11px;color:var(--text-dim);display:flex;align-items:center;gap:5px;cursor:pointer;user-select:none;}
+::-webkit-scrollbar{width:9px;height:9px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:var(--line-bright);border-radius:5px;}
+::-webkit-scrollbar-thumb:hover{background:var(--text-faint);}
+
+/* ---------- Shell ---------- */
+#app{display:flex;flex-direction:column;height:100vh;}
+
+#toolbar{
+  display:flex;align-items:center;gap:10px;
+  padding:8px 14px;
+  background:var(--bg-panel);
+  border-bottom:1px solid var(--line);
+  flex-shrink:0;
+}
+#brand{
+  font-weight:800;font-size:14px;letter-spacing:.2px;color:var(--text);
+  display:flex;align-items:center;gap:7px;margin-right:6px;
+}
+#brand .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent);}
+#brand .sub{color:var(--text-faint);font-weight:500;font-size:11px;}
+.tb-sep{width:1px;align-self:stretch;background:var(--line);margin:0 2px;}
+.tb-group{display:flex;gap:6px;align-items:center;}
+#sessionName{
+  font-family:var(--font-mono);font-size:12px;color:var(--text-dim);
+  padding:5px 9px;border:1px dashed var(--line-bright);border-radius:var(--radius);
+  max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+#reviewBadge{
+  font-size:10px;font-weight:700;letter-spacing:.6px;padding:5px 9px;border-radius:var(--radius);
+  border:1px solid var(--line-bright);color:var(--text-dim);cursor:pointer;user-select:none;
+}
+#reviewBadge[data-state="UNREVIEWED"]{color:var(--text-dim);}
+#reviewBadge[data-state="IN_REVIEW"]{color:var(--warn);border-color:var(--warn);}
+#reviewBadge[data-state="REVIEWED"]{color:var(--good);border-color:var(--good);}
+#reviewBadge[data-state="EXPORTED"]{color:var(--accent);border-color:var(--accent);}
+#toolbar .spacer{flex:1;}
+#fileInput{display:none;}
+
+/* ---------- Grid (resizable) ---------- */
+#grid{
+  flex:1;
+  display:grid;
+  grid-template-columns:270px 6px 1fr 6px 330px;
+  grid-template-rows:1fr 6px 96px 6px 220px;
+  min-height:0;
+}
+.pane{background:var(--bg-panel);border:1px solid var(--line);overflow:hidden;display:flex;flex-direction:column;min-height:0;}
+#treePane{grid-column:1;grid-row:1/6;border-right:none;}
+#wavePane{grid-column:3;grid-row:1;border-left:none;border-bottom:none;}
+#miniPane{grid-column:3;grid-row:3;border-left:none;border-top:none;border-bottom:none;}
+#mapPane{grid-column:3;grid-row:5;border-left:none;border-top:none;}
+#inspPane{grid-column:5;grid-row:1/6;border-left:none;}
+.resizer{background:var(--bg-void);position:relative;z-index:2;}
+.resizer::after{content:'';position:absolute;background:var(--line-bright);}
+.resizer.col{grid-row:1/6;cursor:col-resize;}
+.resizer.col::after{top:0;bottom:0;left:2px;width:1px;}
+.resizer.row{grid-column:3;cursor:row-resize;}
+.resizer.row::after{left:0;right:0;top:2px;height:1px;}
+.resizer:hover::after,.resizer.active::after{background:var(--accent);}
+#rColTree{grid-column:2;}
+#rColInsp{grid-column:4;}
+#rRowMini{grid-row:2;}
+#rRowMap{grid-row:4;}
+
+/* ---------- Recent sessions ---------- */
+#recentWrap{width:100%;max-width:420px;margin-top:6px;}
+#recentList{display:flex;flex-direction:column;gap:6px;margin-top:8px;max-height:220px;overflow-y:auto;}
+.recent-row{
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  background:var(--bg-raised);border:1px solid var(--line-bright);border-radius:var(--radius);
+  padding:8px 10px;cursor:pointer;text-align:left;
+}
+.recent-row:hover{border-color:var(--accent-dim);background:var(--bg-hover);}
+.recent-row .rr-main{display:flex;flex-direction:column;gap:2px;overflow:hidden;}
+.recent-row .rr-name{font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.recent-row .rr-meta{font-size:10.5px;color:var(--text-faint);font-family:var(--font-mono);}
+.recent-row .rr-del{background:transparent;border:none;color:var(--text-faint);font-size:14px;padding:2px 6px;flex-shrink:0;}
+.recent-row .rr-del:hover{color:var(--danger);}
+#autosaveTag{font-size:10px;color:var(--text-faint);font-family:var(--font-mono);white-space:nowrap;}
+
+
+/* ---------- Empty state ---------- */
+#dropzone{
+  flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;
+  color:var(--text-faint);text-align:center;padding:30px;
+}
+#dropzone.drag{background:var(--bg-hover);}
+#dropzone .big{font-size:15px;color:var(--text-dim);font-weight:600;}
+#dropzone .small{font-size:12px;max-width:360px;line-height:1.5;}
+#dropzone button{margin-top:4px;}
+
+/* ---------- Tree panel ---------- */
+.pane-head{
+  padding:9px 12px;border-bottom:1px solid var(--line);
+  display:flex;align-items:center;gap:8px;flex-shrink:0;
+}
+.pane-title{font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--text-dim);text-transform:uppercase;}
+
+/* ---------- Sub-panels (metric tunables / detection tunables) ---------- */
+.sub-panel{
+  padding:9px 12px;border-bottom:1px solid var(--line);background:var(--bg-void);
+  display:flex;flex-direction:column;gap:8px;flex-shrink:0;
+}
+.sub-panel-desc{font-size:11.5px;color:var(--text-dim);line-height:1.5;max-width:900px;}
+.sub-panel-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+.tune-field{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--text-dim);}
+.tune-field input[type=range]{width:120px;accent-color:var(--accent);}
+.tune-field input[type=number]{width:72px;}
+.tune-field .tv{font-family:var(--font-mono);color:var(--text);min-width:44px;display:inline-block;}
+.band-legend{display:flex;gap:10px;flex-wrap:wrap;font-size:10.5px;color:var(--text-faint);}
+.band-legend span{display:inline-flex;align-items:center;gap:4px;}
+.band-legend i{width:9px;height:9px;border-radius:2px;display:inline-block;}
+.sim-summary{display:flex;gap:16px;font-size:11.5px;flex-wrap:wrap;}
+.sim-summary b{color:var(--text);font-family:var(--font-mono);}
+.tune-diff{color:var(--warn);}
+
+#treeTabs{display:flex;flex-shrink:0;border-bottom:1px solid var(--line);}
+.tree-tab{
+  flex:1;text-align:center;padding:8px 4px;font-size:11px;font-weight:700;letter-spacing:.3px;
+  color:var(--text-faint);cursor:pointer;border-bottom:2px solid transparent;
+}
+.tree-tab.active{color:var(--text);border-bottom-color:var(--accent);}
+.tree-tab .count{color:var(--text-faint);font-weight:500;}
+.tree-tab.has-warn .count{color:var(--warn);}
+#treeBody{flex:1;overflow-y:auto;}
+.tree-empty{padding:20px 14px;color:var(--text-faint);font-size:12px;line-height:1.5;}
+.tree-row{
+  padding:8px 12px;border-bottom:1px solid var(--line);cursor:pointer;
+  display:flex;flex-direction:column;gap:3px;
+}
+.tree-row:hover{background:var(--bg-hover);}
+.tree-row.selected{background:var(--bg-hover);box-shadow:inset 2px 0 0 var(--accent);}
+.tree-row.multi-selected{background:rgba(255,255,255,.06);box-shadow:inset 2px 0 0 #fff;}
+.tree-row-top{display:flex;align-items:center;justify-content:space-between;gap:6px;}
+.tree-row-title{font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px;}
+.swatch{width:9px;height:9px;border-radius:2px;flex-shrink:0;}
+.tree-row-meta{font-size:11px;color:var(--text-faint);font-family:var(--font-mono);}
+.mchip{
+  font-family:var(--font-mono);font-size:10px;font-weight:700;padding:1px 5px;border-radius:2px;color:#0A0D12;flex-shrink:0;
+}
+.warn-row{border-left:2px solid var(--warn);}
+.warn-row .tree-row-title{color:var(--warn);}
+
+/* ---------- Waveform pane ---------- */
+#waveHead{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+#waveHead .spacer{flex:1;}
+#waveCanvasWrap{flex:1;position:relative;min-height:0;}
+canvas{display:block;}
+#waveCanvas{width:100%;height:100%;cursor:crosshair;}
+#waveTip{
+  position:absolute;pointer-events:none;background:rgba(10,13,18,.94);border:1px solid var(--line-bright);
+  border-radius:var(--radius);padding:6px 9px;font-family:var(--font-mono);font-size:11px;color:var(--text);
+  display:none;white-space:nowrap;z-index:5;line-height:1.5;
+}
+#addModeHint{
+  position:absolute;top:8px;left:50%;transform:translateX(-50%);
+  background:var(--accent-dim);color:#fff;padding:5px 12px;border-radius:12px;font-size:11px;font-weight:700;
+  display:none;z-index:6;box-shadow:0 2px 10px rgba(0,0,0,.4);
+}
+
+/* ---------- Minimap ---------- */
+#miniCanvas{width:100%;height:100%;cursor:pointer;}
+
+/* ---------- Map ---------- */
+#mapEl{flex:1;background:var(--bg-raised);}
+#mapFallback{flex:1;display:flex;align-items:center;justify-content:center;color:var(--text-faint);font-size:11px;padding:12px;text-align:center;}
+
+/* ---------- Inspector ---------- */
+#inspBody{flex:1;overflow-y:auto;padding:12px;}
+.field-group{margin-bottom:16px;}
+.field-group-title{
+  font-size:10px;font-weight:700;letter-spacing:.6px;color:var(--text-faint);text-transform:uppercase;
+  margin-bottom:8px;
+}
+.field-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:7px;}
+.field-label{font-size:11px;color:var(--text-dim);flex-shrink:0;}
+.field-value{font-family:var(--font-mono);font-size:12px;color:var(--text);text-align:right;}
+.field-value.big{font-size:18px;font-weight:700;}
+.field-row input,.field-row select{width:130px;text-align:right;}
+.insp-empty{color:var(--text-faint);font-size:12px;line-height:1.6;padding:4px 0;}
+.insp-actions{display:flex;gap:7px;margin-top:14px;flex-wrap:wrap;}
+.stat-line{display:flex;justify-content:space-between;font-size:11.5px;padding:4px 0;border-bottom:1px solid var(--line);}
+.stat-line .v{font-family:var(--font-mono);color:var(--text);}
+.stat-line .v.warn{color:var(--warn);}
+.stat-line .v.good{color:var(--good);}
+.mbar{height:6px;border-radius:3px;background:var(--bg-raised);overflow:hidden;margin-top:4px;}
+.mbar-fill{height:100%;}
+
+/* ---------- Modal ---------- */
+#modalOverlay{
+  position:fixed;inset:0;background:rgba(6,8,11,.65);display:none;align-items:center;justify-content:center;z-index:50;
+}
+#modal{
+  background:var(--bg-panel);border:1px solid var(--line-bright);border-radius:6px;padding:18px;width:300px;
+  box-shadow:0 12px 40px rgba(0,0,0,.5);
+}
+#modal h3{margin:0 0 12px;font-size:13px;font-weight:700;}
+#modal .mrow{margin-bottom:12px;display:flex;flex-direction:column;gap:5px;}
+#modal .mrow label{font-size:11px;}
+#modal select,#modal input{width:100%;}
+#modal .mactions{display:flex;justify-content:flex-end;gap:8px;margin-top:6px;}
+
+#confirmOverlay{
+  position:fixed;inset:0;background:rgba(6,8,11,.65);display:none;align-items:center;justify-content:center;z-index:55;
+}
+#confirmModal{
+  background:var(--bg-panel);border:1px solid var(--line-bright);border-radius:6px;padding:18px;width:340px;
+  box-shadow:0 12px 40px rgba(0,0,0,.5);
+}
+#confirmModal h3{margin:0 0 8px;font-size:13px;font-weight:700;}
+#confirmModal p{margin:0 0 16px;font-size:12px;color:var(--text-dim);line-height:1.5;}
+#confirmModal .cactions{display:flex;flex-direction:column;gap:8px;}
+#confirmModal .cactions button{width:100%;text-align:center;}
+
+/* ---------- Roughness (beta) modal ---------- */
+#roughOverlay{position:fixed;inset:0;background:rgba(6,8,11,.7);display:none;align-items:center;justify-content:center;z-index:56;}
+#roughModal{background:var(--bg-panel);border:1px solid var(--line-bright);border-radius:6px;width:min(920px,92vw);max-height:88vh;display:flex;flex-direction:column;box-shadow:0 16px 50px rgba(0,0,0,.55);}
+#roughHead{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--line);}
+#roughHead h3{margin:0;font-size:14px;}
+#roughHead button{background:transparent;border:none;color:var(--text-dim);font-size:14px;padding:4px 8px;}
+#roughHead button:hover{color:var(--text);}
+#roughBody{padding:16px 18px;overflow-y:auto;}
+#roughBody .rough-note{font-size:11.5px;color:var(--text-dim);line-height:1.6;background:var(--bg-void);border:1px solid var(--line);border-radius:4px;padding:10px 12px;margin-bottom:14px;}
+#roughBody canvas{width:100%;background:#0D1117;border:1px solid var(--line);border-radius:4px;margin-bottom:14px;}
+#roughStats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;}
+#roughStats .rs{background:var(--bg-raised);border:1px solid var(--line);border-radius:4px;padding:9px 12px;}
+#roughStats .rs .k{font-size:10px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.4px;}
+#roughStats .rs .v{font-size:16px;font-weight:700;font-family:var(--font-mono);margin-top:2px;}
+
+
+/* ---------- Bulk selection panel ---------- */
+.bulk-count{font-size:26px;font-weight:800;color:var(--text);}
+.bulk-sub{font-size:11px;color:var(--text-dim);margin-top:2px;}
+
+/* ---------- Toast ---------- */
+#toast{
+  position:fixed;bottom:18px;left:50%;transform:translateX(-50%);
+  background:var(--bg-raised);border:1px solid var(--line-bright);border-radius:var(--radius);
+  padding:9px 16px;font-size:12px;color:var(--text);z-index:60;opacity:0;pointer-events:none;
+  transition:opacity .2s ease;box-shadow:0 6px 20px rgba(0,0,0,.4);
+}
+#toast.show{opacity:1;}
+#toast.err{border-color:var(--danger);color:#FFD9D6;}
+#toast.ok{border-color:var(--good);}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div id="toolbar">
+    <div id="brand"><span class="dot"></span>AITKEN WORKBENCH<span class="sub">session curation</span></div>
+    <div class="tb-sep"></div>
+    <div class="tb-group">
+      <button id="btnOpen">Open session (.zip)</button>
+      <input type="file" id="fileInput" accept=".zip">
+      <div style="position:relative;">
+        <button id="btnRecent">Recent &#9662;</button>
+        <div id="recentDropdown" style="display:none;position:absolute;top:calc(100% + 4px);left:0;width:300px;background:var(--bg-panel);border:1px solid var(--line-bright);border-radius:6px;box-shadow:0 12px 30px rgba(0,0,0,.5);z-index:40;padding:8px;max-height:280px;overflow-y:auto;"></div>
+      </div>
+      <button id="btnExport" disabled>Export clean bundle</button>
+      <button id="btnClear" disabled>Clear workbench</button>
+    </div>
+    <div class="tb-sep"></div>
+    <div class="tb-group">
+      <button id="btnUndo" disabled title="Ctrl+Z">Undo</button>
+      <button id="btnRedo" disabled title="Ctrl+Shift+Z">Redo</button>
+    </div>
+    <div class="tb-sep"></div>
+    <div class="tb-group">
+      <button id="btnAddPoint" disabled title="Place a point tag">+ Point tag</button>
+      <button id="btnAddRange" disabled title="Mark a range tag">+ Range tag</button>
+      <button id="btnAddSegment" disabled title="Draw a new segment">+ Segment</button>
+    </div>
+    <div class="tb-sep"></div>
+    <div class="tb-group">
+      <button id="btnPrevItem" disabled title="Previous segment [">&#9664;</button>
+      <button id="btnNextItem" disabled title="Next segment ]">&#9654;</button>
+    </div>
+    <div class="spacer"></div>
+    <div id="autosaveTag"></div>
+    <div id="sessionName">No session loaded</div>
+    <div id="reviewBadge" data-state="UNREVIEWED" title="Click to advance review state">UNREVIEWED</div>
+  </div>
+
+  <div id="grid">
+    <div class="resizer col" id="rColTree"></div>
+    <div class="resizer col" id="rColInsp"></div>
+    <div class="resizer row" id="rRowMini"></div>
+    <div class="resizer row" id="rRowMap"></div>
+
+    <div class="pane" id="treePane">
+      <div id="treeTabs">
+        <div class="tree-tab active" data-tab="segments">Segments <span class="count" id="cSeg">0</span></div>
+        <div class="tree-tab" data-tab="labels">Tags <span class="count" id="cTag">0</span></div>
+        <div class="tree-tab" data-tab="warnings">Warnings <span class="count" id="cWarn">0</span></div>
+      </div>
+      <div id="treeBody"><div class="tree-empty">Open a session to see detected segments, tags and data warnings here.</div></div>
+    </div>
+
+    <div class="pane" id="wavePane">
+      <div id="dropzone">
+        <div class="big">No session open</div>
+        <div class="small">Drag a session .zip here, or open one from the toolbar. A session bundle contains sensor.csv, gps.csv, segments.csv and labels.csv.</div>
+        <button class="primary" id="btnOpen2">Open session (.zip)</button>
+        <div id="recentWrap" style="display:none;">
+          <div class="small" style="margin-bottom:0;">Or resume a recent session:</div>
+          <div id="recentList"></div>
+        </div>
+      </div>
+      <div id="waveContent" style="display:none;flex:1;flex-direction:column;min-height:0;">
+        <div class="pane-head" id="waveHead">
+          <span class="pane-title">Signal</span>
+          <select id="channelSel">
+            <optgroup label="Raw signal">
+              <option value="vertical">Vertical acceleration</option>
+              <option value="jerk">Jerk (on-device)</option>
+              <option value="rollStd">Rolling std dev</option>
+              <option value="ax">Accel X</option>
+              <option value="ay">Accel Y</option>
+              <option value="az">Accel Z</option>
+              <option value="gx">Gyro X</option>
+              <option value="gy">Gyro Y</option>
+              <option value="gz">Gyro Z</option>
+            </optgroup>
+            <optgroup label="Standards &amp; metrics (experimental)">
+              <option value="peak">Peak (windowed)</option>
+              <option value="rms">RMS (windowed, ISO 2631-style)</option>
+              <option value="vdv">VDV (4th-power dose)</option>
+              <option value="crest">Crest factor</option>
+              <option value="mtvv">MTVV / running RMS</option>
+              <option value="jerkStd">Standard jerk</option>
+              <option value="bandpass">Band-pass filter</option>
+              <option value="hybrid">Hybrid peak/RMS</option>
+            </optgroup>
+          </select>
+          <label><input type="checkbox" id="chkRecompute"> Recomputed (JS DSP)</label>
+          <div class="tb-sep"></div>
+          <label><input type="checkbox" id="chkSeg" checked> Segments</label>
+          <label><input type="checkbox" id="chkTags" checked> Tags</label>
+          <label><input type="checkbox" id="chkSpeed"> Speed</label>
+          <select id="speedUnit" style="width:62px;"><option value="kph">km/h</option><option value="ms">m/s</option></select>
+          <label><input type="checkbox" id="chkCalibLine" checked> Calib. line</label>
+          <div class="spacer"></div>
+          <button id="btnTunables" title="Detection tunables and non-destructive what-if simulation">Detection tunables</button>
+          <button id="btnRoughness" title="Experimental IRI-inspired roughness &amp; ISO 8608 PSD view">Roughness (beta)</button>
+          <div class="tb-sep"></div>
+          <button id="btnZoomOut" title="Zoom out">&minus;</button>
+          <button id="btnZoomIn" title="Zoom in">+</button>
+          <button id="btnZoomFit" title="Fit whole session">Fit</button>
+          <div class="tb-sep"></div>
+          <button id="btnSelectVisible" title="Select all segments/tags in the current view (Shift-drag to select a range)">Select visible</button>
+        </div>
+        <div id="metricPanel" class="sub-panel" style="display:none;"></div>
+        <div id="tunablesPanel" class="sub-panel" style="display:none;"></div>
+        <div id="waveCanvasWrap" title="Drag: pan &middot; Shift+drag or Shift+click: multiselect &middot; Wheel: zoom &middot; [ / ]: prev/next segment">
+          <canvas id="waveCanvas"></canvas>
+          <div id="waveTip"></div>
+          <div id="addModeHint"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pane" id="miniPane"><canvas id="miniCanvas"></canvas></div>
+
+    <div class="pane" id="mapPane">
+      <div id="mapEl" style="display:none;"></div>
+      <div id="mapFallback">GPS track map appears once a session with GPS data is loaded.</div>
+    </div>
+
+    <div class="pane" id="inspPane">
+      <div class="pane-head"><span class="pane-title" id="inspTitle">Inspector</span></div>
+      <div id="inspBody"><div class="insp-empty">Select a segment, tag, or point on the waveform to inspect it here. With nothing open, this shows session-level statistics.</div></div>
+    </div>
+
+  </div>
+</div>
+
+<div id="modalOverlay">
+  <div id="modal">
+    <h3 id="modalTitle">Add tag</h3>
+    <div id="modalBody"></div>
+    <div class="mactions">
+      <button id="modalCancel">Cancel</button>
+      <button class="primary" id="modalOk">Add</button>
+    </div>
+  </div>
+</div>
+
+<div id="confirmOverlay">
+  <div id="confirmModal">
+    <h3 id="confirmTitle">Clear workbench</h3>
+    <p id="confirmBody">This removes the current session from view.</p>
+    <div class="cactions">
+      <button class="primary" id="confirmExport">Export, then clear</button>
+      <button class="danger-btn" id="confirmDiscard">Discard &amp; clear</button>
+      <button id="confirmCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div id="roughOverlay">
+  <div id="roughModal">
+    <div id="roughHead">
+      <h3>Road roughness (experimental)</h3>
+      <button id="roughClose">&#10005;</button>
+    </div>
+    <div id="roughBody"></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+(function(){
+"use strict";
+
+/* =========================================================================
+   CONSTANTS
+   ========================================================================= */
+
+// M-scale (impact severity, 0-10). Logarithmic against measured peak
+// vertical acceleration (m/s^2). Named constants per Vision's existing
+// convention -- these are [CALIBRATE] and expected to move once more ride
+// data exists; adjust ANCHOR_PEAK_MS2 as the corpus grows.
+const M_SCALE = {
+  FLOOR_MS2: 10,          // peak at/under this reads as M0 (near gravity/noise)
+  ANCHOR_PEAK_MS2: 60,    // peak that reads as ANCHOR_M
+  ANCHOR_M: 6,
+  MAX_M: 10
+};
+function peakToMScale(peakM){
+  if (!isFinite(peakM) || peakM <= M_SCALE.FLOOR_MS2) return 0;
+  const raw = M_SCALE.ANCHOR_M * Math.log(peakM / M_SCALE.FLOOR_MS2) / Math.log(M_SCALE.ANCHOR_PEAK_MS2 / M_SCALE.FLOOR_MS2);
+  return Math.max(0, Math.min(M_SCALE.MAX_M, raw));
+}
+const SEV_STOPS = [ [0,'#3C8F4A'], [3,'#C7CB3B'], [6,'#F09330'], [10,'#D6483F'] ];
+function hexToRgb(h){ h=h.replace('#',''); return [parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)]; }
+function severityColor(mScale){
+  let a=SEV_STOPS[0], b=SEV_STOPS[SEV_STOPS.length-1];
+  for(let i=0;i<SEV_STOPS.length-1;i++){
+    if(mScale>=SEV_STOPS[i][0] && mScale<=SEV_STOPS[i+1][0]){ a=SEV_STOPS[i]; b=SEV_STOPS[i+1]; break; }
+  }
+  const span=b[0]-a[0] || 1;
+  const t=Math.max(0,Math.min(1,(mScale-a[0])/span));
+  const ca=hexToRgb(a[1]), cb=hexToRgb(b[1]);
+  const r=Math.round(ca[0]+(cb[0]-ca[0])*t), g=Math.round(ca[1]+(cb[1]-ca[1])*t), bl=Math.round(ca[2]+(cb[2]-ca[2])*t);
+  return `rgb(${r},${g},${bl})`;
+}
+
+const LABEL_COLORS = {
+  'Pothole':'#EF5350','Bump':'#66BB6A','Speedbreaker':'#FFA726',
+  'Rough stretch':'#C776DD','Unknown':'#8993A4'
+};
+function labelColor(name){ return LABEL_COLORS[name] || LABEL_COLORS.Unknown; }
+
+const KNOWN_LABELS = ['Pothole','Bump','Speedbreaker','Rough stretch'];
+
+const CHANNEL_META = {
+  vertical:{key:'vertical', unit:'m/s\u00B2', name:'Vertical acceleration'},
+  jerk:{key:'jerk', unit:'m/s\u00B3', name:'Jerk (on-device)'},
+  rollStd:{key:'rollStd', unit:'m/s\u00B2', name:'Rolling std dev'},
+  ax:{key:'ax', unit:'m/s\u00B2', name:'Accel X'},
+  ay:{key:'ay', unit:'m/s\u00B2', name:'Accel Y'},
+  az:{key:'az', unit:'m/s\u00B2', name:'Accel Z'},
+  gx:{key:'gx', unit:'rad/s', name:'Gyro X'},
+  gy:{key:'gy', unit:'rad/s', name:'Gyro Y'},
+  gz:{key:'gz', unit:'rad/s', name:'Gyro Z'}
+};
+
+/* -------------------------------------------------------------------------
+   Metric "standards" views. All computed from the vertical acceleration
+   signal (device-recorded, or JS-recomputed if that overlay is on). None of
+   these implement the ISO 2631-1 Wk/Wd *frequency-weighting* filter -- that
+   is a specific multi-stage filter this workbench does not attempt to
+   reproduce from memory, since a subtly-wrong weighting filter would be
+   worse than none at all (silently wrong numbers dressed up as compliant
+   ones). Everything below runs on the unweighted signal and is labeled as
+   such: genuinely useful for relative, within-session comparison and for
+   building intuition, not a substitute for a calibrated ISO 2631-1 rig.
+   ------------------------------------------------------------------------- */
+const METRIC_DEFS = {
+  peak:   { name:'Peak (windowed)', unit:'m/s\u00B2', band:'sev',
+    desc:'Highest |vertical accel| in a trailing window -- the same idea as a segment\u2019s peak_m, but continuous across the whole ride.',
+    params:[{key:'peakWindowMs', label:'Window', min:50, max:5000, step:50, unit:'ms'}] },
+  rms:    { name:'RMS (windowed, ISO 2631-style)', unit:'m/s\u00B2', band:'rms',
+    desc:'Root-mean-square vertical accel in a trailing window -- the basic ISO 2631-1 comfort metric, computed here unweighted. Treat as relative/illustrative, not a certified a\u1D64 value.',
+    params:[{key:'rmsWindowMs', label:'Window', min:100, max:10000, step:100, unit:'ms'}] },
+  vdv:    { name:'VDV (4th-power dose)', unit:'m/s^1.75', band:'vdv',
+    desc:'Vibration Dose Value -- weights big jolts far more than RMS (4th power). Shown as a trailing rolling dose; the whole-session cumulative VDV is the badge value ISO 2631-1 exposure tables actually use.',
+    params:[{key:'vdvWindowMs', label:'Window', min:250, max:20000, step:250, unit:'ms'}] },
+  crest:  { name:'Crest factor', unit:'\u00D7', band:'crest',
+    desc:'Peak \u00F7 RMS in a trailing window. ISO 2631-1 flags that plain RMS assessment gets unreliable above a crest factor of about 9 -- past that, VDV or MTVV are the recommended metrics.',
+    params:[{key:'cfWindowMs', label:'Window', min:250, max:10000, step:250, unit:'ms'}] },
+  mtvv:   { name:'MTVV / running RMS', unit:'m/s\u00B2', band:'rms',
+    desc:'Exponentially time-weighted running RMS with time constant \u03C4. Its peak over a ride is the MTVV -- ISO 2631-1\u2019s way of catching one dominant jolt that a whole-ride RMS would average away.',
+    params:[{key:'mtvvTauMs', label:'\u03C4 (tau)', min:100, max:5000, step:100, unit:'ms'}] },
+  jerkStd:{ name:'Standard jerk', unit:'m/s\u00B3', band:'jerk',
+    desc:'Rate of change of acceleration. There isn\u2019t one universal cited ride-comfort jerk standard the way ISO 2631 covers vibration -- the bands below are general illustrative guidance, not a specific spec.',
+    params:[] },
+  bandpass:{ name:'Band-pass filter', unit:'m/s\u00B2', band:'sev',
+    desc:'2nd-order constant-skirt-gain band-pass isolating vibration around a chosen frequency -- e.g. separate suspension-frequency motion (~1-4Hz) from road-texture noise (>15Hz).',
+    params:[{key:'bpFreqHz', label:'Center freq', min:0.5, max:30, step:0.5, unit:'Hz'},{key:'bpQ', label:'Q', min:0.3, max:10, step:0.1, unit:''},{key:'bpGainDb', label:'Gain', min:-12, max:24, step:1, unit:'dB'}] },
+  hybrid: { name:'Hybrid peak/RMS', unit:'m/s\u00B2', band:'sev',
+    desc:'Tunable blend of windowed peak (spikiness) and windowed RMS (sustained roughness) -- slide toward peak to weight isolated potholes more, toward RMS for consistently rough surfaces.',
+    params:[{key:'hybridWindowMs', label:'Window', min:100, max:5000, step:100, unit:'ms'},{key:'hybridAlpha', label:'Peak weight (\u03B1)', min:0, max:1, step:0.05, unit:''}] }
+};
+const METRIC_KEYS = Object.keys(METRIC_DEFS);
+const DEFAULT_METRIC_TUNABLES = {
+  peakWindowMs:500, rmsWindowMs:1000, vdvWindowMs:2000, cfWindowMs:2000,
+  mtvvTauMs:1000, bpFreqHz:8, bpQ:1.5, bpGainDb:0, hybridWindowMs:500, hybridAlpha:0.5
+};
+// Fallback detection tunables for sessions with no config.json (matches
+// SegmentDetector.kt / NoiseFloorCalibrator.kt defaults already in the repo).
+const DEFAULT_DETECTION_TUNABLES = {
+  calibrationDurationMs:10000, stdFactor:3.0, floorStd:0.05,
+  endQuietMs:500, minSegmentDurationMs:30, turnYawThresholdRadS:1.0
+};
+
+// Illustrative comfort/severity guidance for the standards views. NOT a
+// substitute for full ISO 2631-1 frequency-weighted assessment -- see the
+// METRIC_DEFS descriptions above. Drawn as soft background bands so the
+// shape of a ride's exposure is visible at a glance without reading numbers.
+const COMFORT_BANDS = {
+  rms: [ [0,0.315,'#3C8F4A','not uncomfortable'], [0.315,0.63,'#8BC34A','a little uncomfortable'],
+    [0.63,1.0,'#C7CB3B','fairly uncomfortable'], [1.0,1.6,'#F09330','uncomfortable'],
+    [1.6,2.5,'#E5583F','very uncomfortable'], [2.5,Infinity,'#D6483F','extremely uncomfortable'] ],
+  vdv: [ [0,8.5,'#3C8F4A','low'], [8.5,15,'#C7CB3B','moderate'],
+    [15,30,'#F09330','caution (HSE daily guidance zone)'], [30,Infinity,'#D6483F','high exposure'] ],
+  crest: [ [0,6,'#3C8F4A','typical -- RMS assessment reasonable'], [6,9,'#C7CB3B','elevated'],
+    [9,Infinity,'#D6483F','high CF -- shock content, prefer VDV/MTVV'] ],
+  jerk: [ [0,2,'#3C8F4A','smooth'], [2,6,'#C7CB3B','noticeable'],
+    [6,15,'#F09330','abrupt'], [15,Infinity,'#D6483F','harsh / jolting'] ]
+};
+
+const UNDO_LIMIT = 100;
+
+
+/* =========================================================================
+   UTIL
+   ========================================================================= */
+
+function fmtTime(sec){
+  if (!isFinite(sec)) return '--:--.---';
+  const neg = sec < 0; sec = Math.abs(sec);
+  const m = Math.floor(sec/60);
+  const s = sec - m*60;
+  return (neg?'-':'') + String(m).padStart(2,'0') + ':' + s.toFixed(3).padStart(6,'0');
+}
+function fmtDur(sec){
+  if (sec < 1) return (sec*1000).toFixed(0) + ' ms';
+  if (sec < 60) return sec.toFixed(3) + ' s';
+  return fmtTime(sec);
+}
+function fmtNum(v, d){ return isFinite(v) ? v.toFixed(d==null?2:d) : '\u2013'; }
+function clamp(v,lo,hi){ return Math.max(lo,Math.min(hi,v)); }
+function lowerBound(arr, val){
+  // first index i such that arr[i] >= val
+  let lo=0, hi=arr.length;
+  while(lo<hi){ const mid=(lo+hi)>>1; if(arr[mid] < val) lo=mid+1; else hi=mid; }
+  return lo;
+}
+function uid(){ return (uid._n = (uid._n||0) + 1); }
+
+let toastTimer=null;
+function toast(msg, kind){
+  const el=document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'show' + (kind?(' '+kind):'');
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>{ el.className=''; }, 2600);
+}
+
+/* =========================================================================
+   CSV PARSE / STRINGIFY
+   ========================================================================= */
+
+function parseCSVLines(text){
+  const lines = text.split(/\r?\n/).filter(l=>l.length>0);
+  if(lines.length===0) return {header:[], rows:[]};
+  const header = lines[0].split(',');
+  const rows = new Array(lines.length-1);
+  for(let i=1;i<lines.length;i++) rows[i-1] = lines[i].split(',');
+  return {header, rows};
+}
+function toNum(s){ if(s===undefined || s==='') return NaN; const n=Number(s); return n; }
+
+function parseSensorCSV(text){
+  const {header, rows} = parseCSVLines(text);
+  const idx = {}; header.forEach((h,i)=>idx[h.trim()]=i);
+  const n = rows.length;
+  const out = {
+    n, schemaVersion: n?toNum(rows[0][idx.schema_version]):1,
+    tNs: new Float64Array(n), tSec: new Float64Array(n),
+    ax:new Float64Array(n), ay:new Float64Array(n), az:new Float64Array(n),
+    gx:new Float64Array(n), gy:new Float64Array(n), gz:new Float64Array(n),
+    vertical:new Float64Array(n), jerk:new Float64Array(n), rollStd:new Float64Array(n)
+  };
+  for(let i=0;i<n;i++){
+    const r = rows[i];
+    out.tNs[i]=toNum(r[idx.timestamp_sensor_ns]);
+    out.ax[i]=toNum(r[idx.accel_x_ms2]); out.ay[i]=toNum(r[idx.accel_y_ms2]); out.az[i]=toNum(r[idx.accel_z_ms2]);
+    out.gx[i]=toNum(r[idx.gyro_x_rads]); out.gy[i]=toNum(r[idx.gyro_y_rads]); out.gz[i]=toNum(r[idx.gyro_z_rads]);
+    out.vertical[i]=toNum(r[idx.vertical_ms2]); out.jerk[i]=toNum(r[idx.jerk_ms3]); out.rollStd[i]=toNum(r[idx.roll_std_dev]);
+  }
+  const t0 = n ? out.tNs[0] : 0;
+  for(let i=0;i<n;i++) out.tSec[i] = (out.tNs[i]-t0)/1e9;
+  out.t0Ns = t0;
+  return out;
+}
+function parseGpsCSV(text, t0Ns){
+  const {header, rows} = parseCSVLines(text);
+  const idx = {}; header.forEach((h,i)=>idx[h.trim()]=i);
+  const n = rows.length;
+  const out = { n, schemaVersion: n?toNum(rows[0][idx.schema_version]):1,
+    tSec:new Float64Array(n), lat:new Float64Array(n), lon:new Float64Array(n),
+    speed:new Float64Array(n), acc:new Float64Array(n) };
+  for(let i=0;i<n;i++){
+    const r = rows[i];
+    out.tSec[i] = (toNum(r[idx.timestamp_sensor_ns]) - t0Ns)/1e9;
+    out.lat[i]=toNum(r[idx.latitude]); out.lon[i]=toNum(r[idx.longitude]);
+    out.speed[i]=toNum(r[idx.speed_mps]); out.acc[i]=toNum(r[idx.accuracy_m]);
+  }
+  return out;
+}
+function parseSegmentsCSV(text, t0Ns){
+  const {header, rows} = parseCSVLines(text);
+  const idx = {}; header.forEach((h,i)=>idx[h.trim()]=i);
+  return rows.map(r=>{
+    const startNs = toNum(r[idx.start_ns]);
+    const durationNs = toNum(r[idx.duration_ns]);
+    return {
+      id: uid(),
+      schemaVersion: toNum(r[idx.schema_version]),
+      startSec: (startNs - t0Ns)/1e9,
+      durSec: durationNs/1e9,
+      peakM: toNum(r[idx.peak_m]),
+      rmsM: toNum(r[idx.rms_m]),
+      speedMps: toNum(r[idx.speed_mps]),
+      epochMs: toNum(r[idx.epoch_ms]),
+      origStartNs: startNs,
+      edited:false, isNew:false
+    };
+  });
+}
+function parseLabelsCSV(text, t0Ns){
+  const {header, rows} = parseCSVLines(text);
+  const idx = {}; header.forEach((h,i)=>idx[h.trim()]=i);
+  return rows.map(r=>{
+    const raw = r[idx.segment_start_ns];
+    return {
+      id: uid(),
+      schemaVersion: toNum(r[idx.schema_version]),
+      tSec: (toNum(r[idx.timestamp_sensor_ns]) - t0Ns)/1e9,
+      kind: (r[idx.kind]||'').trim(),
+      rawSegStartNs: raw===''||raw===undefined ? null : toNum(raw),
+      label: (r[idx.label]||'').trim(),
+      tapOffsetMs: toNum(r[idx.tap_offset_ms]),
+      epochMs: toNum(r[idx.epoch_ms]),
+      segmentId: null, // resolved after segments are loaded
+      edited:false, isNew:false
+    };
+  });
+}
+
+function segmentsToCSV(segments, t0Ns){
+  const lines = ['schema_version,start_ns,duration_ns,peak_m,rms_m,speed_mps,epoch_ms'];
+  segments.slice().sort((a,b)=>a.startSec-b.startSec).forEach(s=>{
+    const startNs = Math.round(s.startSec*1e9 + t0Ns);
+    const durNs = Math.round(s.durSec*1e9);
+    lines.push([1, startNs, durNs, s.peakM.toFixed(3), s.rmsM.toFixed(3), (isFinite(s.speedMps)?s.speedMps.toFixed(3):''), Math.round(s.epochMs)].join(','));
+  });
+  return lines.join('\n')+'\n';
+}
+function labelsToCSV(labels, segments, t0Ns){
+  const lines = ['schema_version,timestamp_sensor_ns,kind,segment_start_ns,label,tap_offset_ms,epoch_ms'];
+  labels.slice().sort((a,b)=>a.tSec-b.tSec).forEach(l=>{
+    const tNs = Math.round(l.tSec*1e9 + t0Ns);
+    let segNs = '';
+    if (l.segmentId!=null){
+      const seg = segments.find(s=>s.id===l.segmentId);
+      if (seg) segNs = Math.round(seg.startSec*1e9 + t0Ns);
+    }
+    lines.push([1, tNs, l.kind, segNs, l.label, Math.round(isFinite(l.tapOffsetMs)?l.tapOffsetMs:0), Math.round(l.epochMs)].join(','));
+  });
+  return lines.join('\n')+'\n';
+}
+
+/* =========================================================================
+   DSP MIRROR (matches com.aitken.dsp Kotlin modules, for on-device vs.
+   recomputed differential comparison -- see Vision's own differential-replay
+   audit method)
+   ========================================================================= */
+
+function recomputeVertical(sensor){
+  const n = sensor.n;
+  const out = new Float64Array(n);
+  let gx=0, gy=0, gz=0, count=0;
+  const alpha = 0.90;
+  for(let i=0;i<n;i++){
+    const ax=sensor.ax[i], ay=sensor.ay[i], az=sensor.az[i];
+    if(count===0){ gx=ax; gy=ay; gz=az; } else { gx=alpha*gx+(1-alpha)*ax; gy=alpha*gy+(1-alpha)*ay; gz=alpha*gz+(1-alpha)*az; }
+    count++;
+    const norm = Math.sqrt(gx*gx+gy*gy+gz*gz);
+    out[i] = norm < 1e-6 ? 0 : (ax*gx+ay*gy+az*gz)/norm;
+  }
+  return out;
+}
+// Jerk recomputed against *measured* dt (not the fixed 0.01s the on-device
+// filter assumes), so a divergence from the on-device jerk column can reveal
+// actual sample-rate drift rather than just re-deriving the same number.
+function recomputeJerk(sensor, vertical, windowSamples){
+  windowSamples = windowSamples || 4;
+  const n = sensor.n;
+  const out = new Float64Array(n).fill(NaN);
+  for(let i=windowSamples;i<n;i++){
+    const dt = sensor.tSec[i]-sensor.tSec[i-windowSamples];
+    out[i] = dt>0 ? (vertical[i]-vertical[i-windowSamples])/dt : NaN;
+  }
+  return out;
+}
+function recomputeRollingStd(vertical, windowSamples){
+  windowSamples = windowSamples || 20;
+  const n = vertical.length;
+  const out = new Float64Array(n);
+  let sum=0, sumSq=0;
+  const buf = new Float64Array(windowSamples); let bi=0, bn=0;
+  for(let i=0;i<n;i++){
+    const v = vertical[i];
+    if(bn<windowSamples){ buf[bi]=v; bn++; } else { sum-=buf[bi]; sumSq-=buf[bi]*buf[bi]; buf[bi]=v; }
+    sum+=v; sumSq+=v*v; bi=(bi+1)%windowSamples;
+    const mean = sum/bn; const variance = Math.max(0, sumSq/bn - mean*mean);
+    out[i]=Math.sqrt(variance);
+  }
+  return out;
+}
+
+/* -------------------------------------------------------------------------
+   Metric-view computations (Part D). All are O(n) single-pass algorithms so
+   they stay responsive even on a 30+ minute, 200k-sample session.
+   ------------------------------------------------------------------------- */
+
+function estimateSampleRateHz(tSec){
+  const n = tSec.length; if(n<2) return 100;
+  const dts = new Float64Array(n-1);
+  for(let i=1;i<n;i++) dts[i-1] = tSec[i]-tSec[i-1];
+  const sorted = Array.from(dts).sort((a,b)=>a-b);
+  const median = sorted[Math.floor(sorted.length/2)];
+  return median>0 ? 1/median : 100;
+}
+
+// Trailing-window peak(|a|) and RMS(a), windowed in *time* (robust to the
+// jittery real sample rate this project already documented -- see
+// AndroidSensorStream). O(n) via a running sum-of-squares plus a monotonic
+// deque for the sliding-window maximum.
+function windowedPeakRMS(vertical, tSec, windowMs){
+  const n = vertical.length;
+  const peak = new Float64Array(n), rms = new Float64Array(n);
+  const span = Math.max(windowMs,1)/1000;
+  const dq = new Int32Array(n); let dqHead=0, dqTail=0;
+  let lo=0, sumSq=0;
+  for(let i=0;i<n;i++){
+    const av = Math.abs(vertical[i]);
+    sumSq += vertical[i]*vertical[i];
+    while(dqTail>dqHead && Math.abs(vertical[dq[dqTail-1]])<=av) dqTail--;
+    dq[dqTail++] = i;
+    while(tSec[i]-tSec[lo] > span){
+      sumSq -= vertical[lo]*vertical[lo];
+      if(dq[dqHead]===lo) dqHead++;
+      lo++;
+    }
+    const cnt = i-lo+1;
+    rms[i] = Math.sqrt(Math.max(sumSq,0)/Math.max(cnt,1));
+    peak[i] = Math.abs(vertical[dq[dqHead]]);
+  }
+  return {peak, rms};
+}
+
+// Rolling Vibration Dose Value over a trailing window: VDV = (sum a^4 dt)^0.25.
+// Units come out as m/s^1.75 (unusual but correct for VDV).
+function rollingVDV(vertical, tSec, windowMs){
+  const n = vertical.length;
+  const out = new Float64Array(n);
+  const span = Math.max(windowMs,1)/1000;
+  const dt = computeDt(tSec);
+  let lo=0, sum4=0;
+  for(let i=0;i<n;i++){
+    const a2 = vertical[i]*vertical[i];
+    sum4 += a2*a2*dt[i];
+    while(tSec[i]-tSec[lo] > span){ const a2l=vertical[lo]*vertical[lo]; sum4 -= a2l*a2l*dt[lo]; lo++; }
+    out[i] = Math.pow(Math.max(sum4,0), 0.25);
+  }
+  return out;
+}
+function totalVDV(vertical, tSec){
+  const dt = computeDt(tSec);
+  let sum4=0;
+  for(let i=0;i<vertical.length;i++){ const a2=vertical[i]*vertical[i]; sum4 += a2*a2*dt[i]; }
+  return Math.pow(Math.max(sum4,0), 0.25);
+}
+function computeDt(tSec){
+  const n=tSec.length; const dt=new Float64Array(n);
+  if(n===0) return dt;
+  dt[0] = n>1 ? Math.max(tSec[1]-tSec[0],1e-4) : 0.01;
+  for(let i=1;i<n;i++) dt[i] = Math.max(tSec[i]-tSec[i-1], 1e-4);
+  return dt;
+}
+function crestFactorSeries(peak, rms){
+  const n=peak.length; const out=new Float64Array(n);
+  for(let i=0;i<n;i++) out[i] = rms[i]>1e-6 ? peak[i]/rms[i] : 0;
+  return out;
+}
+// Exponentially time-weighted running RMS, ISO 2631-1's basis for MTVV.
+// Exact discretization (k = 1-e^(-dt/tau)) so irregular sample spacing
+// doesn't bias the time constant the way a fixed-alpha EMA would.
+function runningRmsEMA(vertical, tSec, tauMs){
+  const n=vertical.length; const out=new Float64Array(n);
+  const tau = Math.max(tauMs,1)/1000;
+  if(n===0) return out;
+  let emaSq = vertical[0]*vertical[0];
+  out[0] = Math.sqrt(emaSq);
+  for(let i=1;i<n;i++){
+    const dt = Math.max(tSec[i]-tSec[i-1], 1e-4);
+    const k = 1-Math.exp(-dt/tau);
+    emaSq += k*(vertical[i]*vertical[i]-emaSq);
+    out[i] = Math.sqrt(Math.max(emaSq,0));
+  }
+  return out;
+}
+// Standard RBJ-cookbook 2nd-order band-pass, constant skirt gain (peak
+// gain = Q). fs is estimated from the data, not assumed, per this
+// project's own finding that real sample rate drifts from the nominal 100Hz.
+function biquadBandpass(vertical, tSec, freqHz, Q, gainDb){
+  const n=vertical.length; const out=new Float64Array(n);
+  const fs = estimateSampleRateHz(tSec);
+  const w0 = 2*Math.PI*Math.min(Math.max(freqHz,0.1), fs*0.45)/fs;
+  const alpha = Math.sin(w0)/(2*Math.max(Q,0.05));
+  const cosw0 = Math.cos(w0);
+  const b0=alpha, b1=0, b2=-alpha, a0=1+alpha, a1=-2*cosw0, a2=1-alpha;
+  const B0=b0/a0, B1=b1/a0, B2=b2/a0, A1=a1/a0, A2=a2/a0;
+  const gain = Math.pow(10, gainDb/20);
+  let x1=0,x2=0,y1=0,y2=0;
+  for(let i=0;i<n;i++){
+    const x0=vertical[i];
+    const y0=B0*x0+B1*x1+B2*x2-A1*y1-A2*y2;
+    out[i]=y0*gain;
+    x2=x1; x1=x0; y2=y1; y1=y0;
+  }
+  return out;
+}
+function hybridSeries(peak, rms, alpha){
+  const n=peak.length; const out=new Float64Array(n);
+  for(let i=0;i<n;i++) out[i] = alpha*peak[i]+(1-alpha)*rms[i];
+  return out;
+}
+
+/* -------------------------------------------------------------------------
+   Detection-tunable simulation mirror. Matches the *documented*
+   SegmentDetector.kt/NoiseFloorCalibrator.kt state machine exactly, with one
+   correction found by diffing against real segments.csv output: peak_m/
+   rms_m are accumulated as deviation from a *fixed* noise-floor baseline
+   (the long-window mean captured at the end of calibration), not raw
+   |vertical| -- validated against session_20260905_140717's 294 real
+   segments to <0.05 m/s^2 max error end-to-end. See chat notes: the
+   repo's SegmentDetector.kt snapshot predates this (undocumented) change.
+   Used only to draw a non-destructive "what if" overlay; never touches the
+   real segments.
+   ------------------------------------------------------------------------- */
+
+class RollingStatsJS{
+  constructor(windowSamples){ this.n=windowSamples; this.buf=new Float64Array(windowSamples); this.bi=0; this.bn=0; this.sum=0; this.sumSq=0; }
+  push(v){
+    if(this.bn<this.n){ this.buf[this.bi]=v; this.bn++; } else { this.sum-=this.buf[this.bi]; this.sumSq-=this.buf[this.bi]*this.buf[this.bi]; this.buf[this.bi]=v; }
+    this.sum+=v; this.sumSq+=v*v; this.bi=(this.bi+1)%this.n;
+    const mean=this.sum/this.bn;
+    return {mean, std: Math.sqrt(Math.max(0,this.sumSq/this.bn-mean*mean))};
+  }
+}
+function simulateCalibration(vertical, tSec, tunables){
+  const n = vertical.length;
+  // +1: the boundary sample that first crosses the duration is itself
+  // still included in the calibration window (push-then-check, matching
+  // the on-device calibration loop) -- validated empirically against
+  // config.json's calibrated thresholds to <0.001 std.
+  const calibEndIdx = Math.max(1, lowerBound(tSec, tSec[0]+tunables.calibrationDurationMs/1000) + 1);
+  const shortRS = new RollingStatsJS(20), longRS = new RollingStatsJS(3000);
+  let s={mean:0,std:0}, l={mean:0,std:0};
+  for(let i=0;i<calibEndIdx && i<n;i++){ s=shortRS.push(vertical[i]); l=longRS.push(vertical[i]); }
+  const thresh = (std)=> Math.max(Math.max(std,tunables.floorStd)*tunables.stdFactor, tunables.floorStd);
+  return { shortStdThreshold:thresh(s.std), longStdThreshold:thresh(l.std), noiseMean:l.mean, shortRS, longRS, startIdx:calibEndIdx };
+}
+function simulateSegmentDetector(vertical, tSec, gz, tunables, calib){
+  const n = vertical.length;
+  const results = [];
+  let phase='IDLE', startNs=0, lastSignalSec=0, peakM=0, sumSq=0, signalSamples=0;
+  const turnThresh = tunables.turnYawThresholdRadS;
+  const noiseMean = calib.noiseMean;
+  function close(){
+    const durSec = lastSignalSec-startNs;
+    if(durSec*1000 >= tunables.minSegmentDurationMs){
+      results.push({startSec:startNs, durSec, peakM, rmsM: signalSamples? Math.sqrt(sumSq/signalSamples):0});
+    }
+    phase='IDLE';
+  }
+  for(let i=calib.startIdx;i<n;i++){
+    const s = calib.shortRS.push(vertical[i]);
+    const l = calib.longRS.push(vertical[i]);
+    const anySignal = s.std>=calib.shortStdThreshold || l.std>=calib.longStdThreshold;
+    const turning = gz && isFinite(gz[i]) ? Math.abs(gz[i])>=turnThresh : false;
+    const t = tSec[i];
+    const dev = Math.abs(vertical[i]-noiseMean);
+    if(phase==='IDLE'){
+      if(anySignal && !turning){ phase='OPEN'; startNs=t; lastSignalSec=t; peakM=dev; sumSq=dev*dev; signalSamples=1; }
+    } else {
+      if(anySignal){ lastSignalSec=t; if(dev>peakM) peakM=dev; sumSq+=dev*dev; signalSamples++; }
+      else if((t-lastSignalSec)*1000 >= tunables.endQuietMs){ close(); }
+    }
+  }
+  if(phase==='OPEN') close();
+  return results;
+}
+
+
+
+/* =========================================================================
+   STATE
+   ========================================================================= */
+
+const S = {
+  loaded:false,
+  sessionName:'',
+  t0Ns:0,
+  totalDur:0,
+  sensor:null, gps:null,
+  segments:[], labels:[],
+  reviewState:'UNREVIEWED', // UNREVIEWED | IN_REVIEW | REVIEWED
+  view:{ start:0, end:0 },
+  channel:'vertical',
+  showRecompute:false,
+  showSegments:true, showTags:true, showSpeed:false, speedUnit:'kph',
+  showCalibLine:true,
+  recomputeCache:null,
+  _metricCache:null,
+  selection:{type:null, id:null}, // type: 'segment'|'label'|'sample'
+  multi:{segIds:new Set(), labelIds:new Set()},
+  treeTab:'segments',
+  addMode:null, // null | 'point' | 'rangeStart' | 'rangeEnd' | 'segment'
+  rangeStartSec:null,
+  undoStack:[], redoStack:[],
+  drag:null, // active drag descriptor
+  sessionConfig:null,           // parsed config.json, or null
+  detectionTunables:Object.assign({}, DEFAULT_DETECTION_TUNABLES),
+  metricTunables:Object.assign({}, DEFAULT_METRIC_TUNABLES),
+  simulateOn:false,
+  _simCache:null
+};
+
+function pushUndo(){
+  S.undoStack.push(JSON.stringify({segments:S.segments, labels:S.labels}));
+  if(S.undoStack.length>UNDO_LIMIT) S.undoStack.shift();
+  S.redoStack.length=0;
+  updateUndoButtons();
+  // A new edit invalidates a prior review/export sign-off -- surface that
+  // instead of silently letting a stale REVIEWED badge sit next to fresh edits.
+  if(S.reviewState==='REVIEWED' || S.reviewState==='EXPORTED') setReviewState('IN_REVIEW');
+}
+function doUndo(){
+  if(!S.undoStack.length) return;
+  S.redoStack.push(JSON.stringify({segments:S.segments, labels:S.labels}));
+  const snap = JSON.parse(S.undoStack.pop());
+  S.segments = snap.segments; S.labels = snap.labels;
+  clearSelection();
+  updateUndoButtons(); renderAll();
+}
+function doRedo(){
+  if(!S.redoStack.length) return;
+  S.undoStack.push(JSON.stringify({segments:S.segments, labels:S.labels}));
+  const snap = JSON.parse(S.redoStack.pop());
+  S.segments = snap.segments; S.labels = snap.labels;
+  clearSelection();
+  updateUndoButtons(); renderAll();
+}
+function updateUndoButtons(){
+  document.getElementById('btnUndo').disabled = !S.undoStack.length;
+  document.getElementById('btnRedo').disabled = !S.redoStack.length;
+}
+
+/* =========================================================================
+   LOADING
+   ========================================================================= */
+
+async function loadZip(file){
+  try{
+    if(typeof JSZip === 'undefined'){
+      toast('JSZip failed to load from CDN -- check your internet connection.', 'err');
+      return;
+    }
+    const zip = await JSZip.loadAsync(file);
+    const findFile = (name)=>{
+      const exact = Object.keys(zip.files).find(k=>!zip.files[k].dir && k.toLowerCase().split('/').pop()===name);
+      return exact ? zip.files[exact] : null;
+    };
+    const sensorF = findFile('sensor.csv');
+    const gpsF = findFile('gps.csv');
+    const segF = findFile('segments.csv');
+    const labF = findFile('labels.csv');
+    const cfgF = findFile('config.json');
+
+    if(!sensorF){ toast('sensor.csv not found in this bundle -- cannot load a session without it.', 'err'); return; }
+
+    const warnings = [];
+    const sensorText = await sensorF.async('text');
+    const sensor = parseSensorCSV(sensorText);
+    const t0Ns = sensor.t0Ns;
+
+    let sessionConfig = null;
+    if(cfgF){
+      try{ sessionConfig = JSON.parse(await cfgF.async('text')); }
+      catch(e){ warnings.push({level:'warn', text:'config.json could not be parsed ('+e.message+') -- falling back to default detection tunables.'}); }
+    }
+
+    let gps = {n:0, tSec:new Float64Array(0), lat:new Float64Array(0), lon:new Float64Array(0), speed:new Float64Array(0), acc:new Float64Array(0)};
+    if(gpsF){ gps = parseGpsCSV(await gpsF.async('text'), t0Ns); }
+    else warnings.push({level:'warn', text:'No gps.csv in this bundle -- map view and speed context will be unavailable.'});
+
+    if(!cfgF) warnings.push({level:'info', text:'No config.json in this bundle -- the detection-tunable simulator falls back to hardcoded defaults instead of this session\'s actual recording configuration.'});
+
+    let segments = [];
+    if(segF){ segments = parseSegmentsCSV(await segF.async('text'), t0Ns); }
+    else warnings.push({level:'warn', text:'No segments.csv in this bundle -- nothing was detected, or detection has not run yet.'});
+
+    let labels = [];
+    if(labF){ labels = parseLabelsCSV(await labF.async('text'), t0Ns); }
+    else warnings.push({level:'warn', text:'No labels.csv in this bundle -- no manual tags were recorded.'});
+
+    // Resolve label -> segment links by matching raw start_ns to a parsed segment.
+    labels.forEach(l=>{
+      if(l.rawSegStartNs==null){
+        warnings.push({level:'warn', text:`"${l.label||l.kind}" tag at ${fmtTime(l.tSec)} has no segment link recorded -- unmatched tag.`, jump:l.tSec, labelId:l.id});
+        return;
+      }
+      const match = segments.find(s=>Math.abs(s.origStartNs - l.rawSegStartNs) < 1);
+      if(match) l.segmentId = match.id;
+      else warnings.push({level:'warn', text:`"${l.label||l.kind}" tag at ${fmtTime(l.tSec)} references a segment that isn't in segments.csv -- unmatched tag.`, jump:l.tSec, labelId:l.id});
+    });
+
+    // Sensor gap check
+    let maxGap=0, gapCount=0;
+    for(let i=1;i<sensor.n;i++){
+      const dt = sensor.tSec[i]-sensor.tSec[i-1];
+      if(dt>0.5){ gapCount++; if(dt>maxGap) maxGap=dt; }
+    }
+    if(gapCount>0) warnings.push({level:'warn', text:`Sensor stream has ${gapCount} gap(s) over 500ms (longest ${maxGap.toFixed(2)}s).`});
+
+    let gyroPresent=0;
+    for(let i=0;i<sensor.n;i++) if(isFinite(sensor.gx[i])) gyroPresent++;
+    if(sensor.n>0 && gyroPresent < sensor.n) warnings.push({level:'info', text:`Gyro present on ${(100*gyroPresent/sensor.n).toFixed(1)}% of sensor rows (gyro arrives slightly after accel starts).`});
+
+    // GPS missing speed/accuracy
+    let gpsMissingSpeed=0;
+    for(let i=0;i<gps.n;i++) if(!isFinite(gps.speed[i])) gpsMissingSpeed++;
+    if(gpsMissingSpeed>0) warnings.push({level:'info', text:`${gpsMissingSpeed} GPS fix(es) missing a speed reading (typical for the very first fix).`});
+
+    S.warnings = warnings;
+    activateSession({
+      sessionName: file.name.replace(/\.zip$/i,''),
+      t0Ns, sensor, gps, segments, labels, warnings, sessionConfig,
+      totalDur: sensor.n ? sensor.tSec[sensor.n-1] : 0,
+      view: {start:0, end: sensor.n?sensor.tSec[sensor.n-1]:0},
+      channel:'vertical',
+      reviewState:'UNREVIEWED'
+    });
+    toast(`Loaded ${S.sessionName} \u2014 ${sensor.n.toLocaleString()} sensor rows, ${gps.n} GPS fixes, ${segments.length} segment(s), ${labels.length} tag(s).`, 'ok');
+  } catch(err){
+    console.error(err);
+    toast('Could not read that file as a session bundle: ' + err.message, 'err');
+  }
+}
+
+/**
+ * Shared activation path for both a freshly-opened zip and a session
+ * restored from IndexedDB -- one place that wires session data to the UI,
+ * so the two loading routes can never drift out of sync with each other.
+ */
+function activateSession(data){
+  S.loaded = true;
+  S.sessionName = data.sessionName;
+  S.t0Ns = data.t0Ns;
+  S.sensor = data.sensor;
+  S.gps = data.gps;
+  S.segments = data.segments;
+  S.labels = data.labels;
+  S.warnings = data.warnings || [];
+  S.totalDur = data.totalDur;
+  S.view = data.view || {start:0, end:data.totalDur};
+  S.channel = data.channel || 'vertical';
+  S.reviewState = data.reviewState || 'UNREVIEWED';
+  S.undoStack=[]; S.redoStack=[];
+  S.selection={type:null,id:null};
+  S.multi={segIds:new Set(), labelIds:new Set()};
+  S.recomputeCache = null;
+  S._metricCache = null;
+  S._simCache = null;
+  S.addMode=null; S.drag=null; S.rangeStartSec=null;
+  S.sessionConfig = data.sessionConfig || null;
+  S.detectionTunables = data.detectionTunables ? Object.assign({}, data.detectionTunables) : detectionTunablesFromConfig(S.sessionConfig);
+  S.metricTunables = data.metricTunables ? Object.assign({}, data.metricTunables) : Object.assign({}, DEFAULT_METRIC_TUNABLES);
+  S.simulateOn = !!data.simulateOn;
+  S.showSpeed = !!data.showSpeed; S.speedUnit = data.speedUnit || 'kph';
+  S.showCalibLine = data.showCalibLine!==false;
+
+  document.getElementById('sessionName').textContent = S.sessionName;
+  const chSel = document.getElementById('channelSel'); if(chSel) chSel.value = S.channel;
+  const spdChk = document.getElementById('chkSpeed'); if(spdChk) spdChk.checked = S.showSpeed;
+  const spdUnitSel = document.getElementById('speedUnit'); if(spdUnitSel) spdUnitSel.value = S.speedUnit;
+  const calibChk = document.getElementById('chkCalibLine'); if(calibChk) calibChk.checked = S.showCalibLine;
+  document.getElementById('dropzone').style.display='none';
+  document.getElementById('waveContent').style.display='flex';
+  document.getElementById('btnExport').disabled=false;
+  document.getElementById('btnClear').disabled=false;
+  document.getElementById('btnAddPoint').disabled=false;
+  document.getElementById('btnAddRange').disabled=false;
+  document.getElementById('btnAddSegment').disabled=false;
+  document.getElementById('btnPrevItem').disabled=false;
+  document.getElementById('btnNextItem').disabled=false;
+  const simBtn = document.getElementById('btnSimulate'); if(simBtn) simBtn.disabled=false;
+  updateUndoButtons();
+  updateAddHint();
+  setReviewState(S.reviewState);
+  closeRecentDropdown();
+  renderMetricPanel();
+  renderTunablesPanel();
+  initMap();
+  resizeCanvases();
+  renderAll();
+}
+function detectionTunablesFromConfig(cfg){
+  if(!cfg) return Object.assign({}, DEFAULT_DETECTION_TUNABLES);
+  const t = Object.assign({}, DEFAULT_DETECTION_TUNABLES);
+  ['calibrationDurationMs','stdFactor','floorStd','endQuietMs','minSegmentDurationMs','turnYawThresholdRadS'].forEach(k=>{
+    if(isFinite(cfg[k])) t[k]=cfg[k];
+  });
+  return t;
+}
+
+/* =========================================================================
+   REVIEW STATE
+   ========================================================================= */
+
+function setReviewState(s){
+  S.reviewState = s;
+  const badge = document.getElementById('reviewBadge');
+  badge.dataset.state = s;
+  badge.textContent = s.replace('_',' ');
+  scheduleAutosave();
+}
+document.getElementById('reviewBadge').addEventListener('click', ()=>{
+  if(!S.loaded) return;
+  const order = ['UNREVIEWED','IN_REVIEW','REVIEWED','EXPORTED'];
+  const next = order[(order.indexOf(S.reviewState)+1) % order.length];
+  setReviewState(next);
+});
+
+/* =========================================================================
+   TREE PANEL
+   ========================================================================= */
+
+document.querySelectorAll('.tree-tab').forEach(tab=>{
+  tab.addEventListener('click', ()=>{
+    document.querySelectorAll('.tree-tab').forEach(t=>t.classList.remove('active'));
+    tab.classList.add('active');
+    S.treeTab = tab.dataset.tab;
+    renderTree();
+  });
+});
+
+function segLabel(seg){
+  const labs = S.labels.filter(l=>l.segmentId===seg.id && l.kind==='POINT').map(l=>l.label);
+  const uniq = [...new Set(labs)];
+  return uniq.length ? uniq.join(', ') : 'Untagged';
+}
+
+function renderTree(){
+  const body = document.getElementById('treeBody');
+  document.getElementById('cSeg').textContent = S.segments.length;
+  document.getElementById('cTag').textContent = S.labels.length;
+  const warnCount = (S.warnings||[]).filter(w=>w.level==='warn').length;
+  document.getElementById('cWarn').textContent = warnCount;
+  document.querySelector('.tree-tab[data-tab="warnings"]').classList.toggle('has-warn', warnCount>0);
+
+  if(!S.loaded){ body.innerHTML = '<div class="tree-empty">Open a session to see detected segments, tags and data warnings here.</div>'; return; }
+
+  if(S.treeTab==='segments'){
+    if(!S.segments.length){ body.innerHTML='<div class="tree-empty">No segments detected in this session.</div>'; return; }
+    body.innerHTML = S.segments.slice().sort((a,b)=>a.startSec-b.startSec).map(seg=>{
+      const m = peakToMScale(seg.peakM);
+      const col = severityColor(m);
+      const sel = (S.selection.type==='segment'&&S.selection.id===seg.id) ? ' selected':(S.multi.segIds.has(seg.id)?' multi-selected':'');
+      return `<div class="tree-row${sel}" data-kind="segment" data-id="${seg.id}">
+        <div class="tree-row-top">
+          <div class="tree-row-title"><span class="swatch" style="background:${col}"></span>${segLabel(seg)}</div>
+          <span class="mchip" style="background:${col}">M${Math.round(m)}</span>
+        </div>
+        <div class="tree-row-meta">${fmtTime(seg.startSec)} \u00B7 ${fmtDur(seg.durSec)} \u00B7 peak ${seg.peakM.toFixed(1)} m/s\u00B2</div>
+      </div>`;
+    }).join('');
+  } else if(S.treeTab==='labels'){
+    if(!S.labels.length){ body.innerHTML='<div class="tree-empty">No tags recorded in this session.</div>'; return; }
+    const ranges = buildRanges();
+    const points = S.labels.filter(l=>l.kind==='POINT');
+    let html='';
+    points.slice().sort((a,b)=>a.tSec-b.tSec).forEach(l=>{
+      const sel = (S.selection.type==='label'&&S.selection.id===l.id) ? ' selected':(S.multi.labelIds.has(l.id)?' multi-selected':'');
+      html += `<div class="tree-row${sel}" data-kind="label" data-id="${l.id}">
+        <div class="tree-row-top"><div class="tree-row-title"><span class="swatch" style="background:${labelColor(l.label)}"></span>${l.label||'(unlabeled)'}</div></div>
+        <div class="tree-row-meta">${fmtTime(l.tSec)} \u00B7 point${l.segmentId==null?' \u00B7 unmatched':''}</div>
+      </div>`;
+    });
+    ranges.forEach(r=>{
+      const sel = (S.selection.type==='range'&&S.selection.id===r.id) ? ' selected':'';
+      html += `<div class="tree-row${sel}" data-kind="range" data-id="${r.id}">
+        <div class="tree-row-top"><div class="tree-row-title"><span class="swatch" style="background:${labelColor(r.label)}"></span>${r.label||'(unlabeled)'}</div></div>
+        <div class="tree-row-meta">${fmtTime(r.startSec)} \u2013 ${fmtTime(r.endSec)} \u00B7 range</div>
+      </div>`;
+    });
+    body.innerHTML = html || '<div class="tree-empty">No tags recorded in this session.</div>';
+  } else {
+    const warns = S.warnings || [];
+    const unmatchedCount = S.labels.filter(l=>l.segmentId==null).length;
+    const actionBar = unmatchedCount ? `<div style="padding:8px 12px;border-bottom:1px solid var(--line);"><button id="btnSelectUnmatched" style="width:100%;">Select all ${unmatchedCount} unmatched tag(s)</button></div>` : '';
+    if(!warns.length){ body.innerHTML=actionBar+'<div class="tree-empty">No warnings. This session parsed cleanly.</div>'; }
+    else{
+      body.innerHTML = actionBar + warns.map((w,i)=>{
+        const cls = w.level==='warn' ? ' warn-row':'';
+        return `<div class="tree-row${cls}" data-kind="warning" data-idx="${i}">
+          <div class="tree-row-top"><div class="tree-row-title">${w.level==='warn'?'\u26A0':'\u2139'} ${w.level.toUpperCase()}</div></div>
+          <div class="tree-row-meta" style="white-space:normal;line-height:1.4;">${w.text}</div>
+        </div>`;
+      }).join('');
+    }
+    const su = document.getElementById('btnSelectUnmatched'); if(su) su.onclick = selectAllUnmatched;
+  }
+}
+
+document.getElementById('treeBody').addEventListener('click', (e)=>{
+  const row = e.target.closest('.tree-row'); if(!row) return;
+  const kind = row.dataset.kind;
+  if(e.shiftKey && (kind==='segment'||kind==='label')){
+    if(kind==='segment') toggleMultiSegment(Number(row.dataset.id));
+    else toggleMultiLabel(Number(row.dataset.id));
+    return;
+  }
+  if(kind==='segment'){ selectItem('segment', Number(row.dataset.id)); focusOn(S.segments.find(s=>s.id===Number(row.dataset.id))); }
+  else if(kind==='label'){ selectItem('label', Number(row.dataset.id)); const l=S.labels.find(x=>x.id===Number(row.dataset.id)); focusOnTime(l.tSec); }
+  else if(kind==='range'){ selectItem('range', Number(row.dataset.id)); const r=buildRanges().find(x=>x.id===Number(row.dataset.id)); focusOnTime((r.startSec+r.endSec)/2); }
+  else if(kind==='warning'){
+    const w=S.warnings[Number(row.dataset.idx)];
+    if(w.jump!=null) focusOnTime(w.jump);
+    if(w.labelId!=null) selectItem('label', w.labelId);
+  }
+});
+
+function buildRanges(){
+  const starts = S.labels.filter(l=>l.kind==='RANGE_START').slice().sort((a,b)=>a.tSec-b.tSec);
+  const ends = S.labels.filter(l=>l.kind==='RANGE_END').slice().sort((a,b)=>a.tSec-b.tSec);
+  const usedEnds = new Set();
+  return starts.map(st=>{
+    const en = ends.find(e=>!usedEnds.has(e.id) && e.label===st.label && e.tSec>st.tSec);
+    if(en) usedEnds.add(en.id);
+    return { id: st.id, startLabelId: st.id, endLabelId: en?en.id:null, label: st.label,
+      startSec: st.tSec, endSec: en?en.tSec:st.tSec+1 };
+  });
+}
+
+/* =========================================================================
+   SELECTION
+   ========================================================================= */
+
+function selectItem(type, id){
+  S.selection = {type, id};
+  S.multi = {segIds:new Set(), labelIds:new Set()};
+  const wantTab = type==='segment' ? 'segments' : (type==='label'||type==='range') ? 'labels' : S.treeTab;
+  if(wantTab!==S.treeTab){
+    S.treeTab = wantTab;
+    document.querySelectorAll('.tree-tab').forEach(t=>t.classList.toggle('active', t.dataset.tab===wantTab));
+  }
+  renderTree();
+  scrollSelectedIntoView();
+  renderInspector();
+  requestDraw();
+  syncMapToSelection();
+}
+function clearSelection(){
+  S.selection = {type:null, id:null};
+  renderInspector(); requestDraw();
+  if(map) drawMapSegmentMarkers();
+}
+function scrollSelectedIntoView(){
+  requestAnimationFrame(()=>{
+    const row = document.querySelector('#treeBody .tree-row.selected');
+    if(row) row.scrollIntoView({block:'nearest', behavior:'smooth'});
+  });
+}
+
+function focusOn(seg){
+  if(!seg) return;
+  const pad = Math.max(seg.durSec*0.6, 1.5);
+  setView(seg.startSec-pad, seg.startSec+seg.durSec+pad);
+}
+function focusOnTime(t){
+  const span = Math.max(S.view.end-S.view.start, 4);
+  setView(t-span/2, t+span/2);
+}
+function setView(a,b){
+  a = clamp(a, -0.5, S.totalDur); b = clamp(b, 0, S.totalDur+0.5);
+  if(b-a < 0.05) b = a+0.05;
+  S.view.start = a; S.view.end = b;
+  requestDraw(); drawMinimap();
+}
+
+/* =========================================================================
+   INSPECTOR
+   ========================================================================= */
+
+function renderInspector(){
+  const body = document.getElementById('inspBody');
+  const title = document.getElementById('inspTitle');
+  if(!S.loaded){ title.textContent='Inspector'; body.innerHTML='<div class="insp-empty">Select a segment, tag, or point on the waveform to inspect it here. With nothing open, this shows session-level statistics.</div>'; return; }
+
+  if(S.multi.segIds.size || S.multi.labelIds.size){ title.textContent='Multiple selected'; renderBulkInspector(body); return; }
+  if(S.selection.type==='segment'){ title.textContent='Segment'; renderSegmentInspector(body); return; }
+  if(S.selection.type==='label'){ title.textContent='Point tag'; renderLabelInspector(body); return; }
+  if(S.selection.type==='range'){ title.textContent='Range tag'; renderRangeInspector(body); return; }
+
+  title.textContent = 'Session';
+  renderSessionInspector(body);
+}
+
+function renderBulkInspector(body){
+  const segIds = [...S.multi.segIds], labelIds = [...S.multi.labelIds];
+  const labs = labelIds.map(id=>S.labels.find(l=>l.id===id)).filter(Boolean);
+  const unmatchedCount = labs.filter(l=>l.segmentId==null).length;
+  body.innerHTML = `
+    <div class="field-group">
+      <div class="bulk-count">${segIds.length+labelIds.length}</div>
+      <div class="bulk-sub">${segIds.length} segment(s), ${labelIds.length} tag(s) selected \u00B7 Shift-click or shift-drag to adjust</div>
+    </div>
+    ${labelIds.length ? `
+    <div class="field-group">
+      <div class="field-group-title">Bulk relabel (tags only)</div>
+      <div class="field-row">
+        <select id="bulkLabelSel" style="width:100%;">${KNOWN_LABELS.map(k=>`<option value="${k}">${k}</option>`).join('')}</select>
+      </div>
+      <div class="insp-actions"><button id="bulkRelabel" class="primary">Apply label to ${labelIds.length} tag(s)</button></div>
+    </div>` : ''}
+    ${unmatchedCount ? `
+    <div class="field-group">
+      <div class="field-group-title">Matching</div>
+      <div class="insp-actions"><button id="bulkAutoMatch">Auto-match ${unmatchedCount} unmatched tag(s)</button></div>
+    </div>` : ''}
+    <div class="field-group">
+      <div class="field-group-title">Danger zone</div>
+      <div class="insp-actions">
+        <button id="bulkDelete" class="danger-btn">Delete selected (${segIds.length+labelIds.length})</button>
+      </div>
+    </div>
+    <div class="insp-actions"><button id="bulkClear">Clear selection</button></div>`;
+
+  const relabelBtn = document.getElementById('bulkRelabel');
+  if(relabelBtn) relabelBtn.onclick = ()=>{
+    const label = document.getElementById('bulkLabelSel').value;
+    pushUndo();
+    labs.forEach(l=>{ l.label=label; l.edited=true; });
+    toast(`Relabeled ${labs.length} tag(s) to "${label}".`, 'ok');
+    renderAll();
+  };
+  const amBtn = document.getElementById('bulkAutoMatch');
+  if(amBtn) amBtn.onclick = ()=>{
+    pushUndo();
+    let matched=0;
+    labs.forEach(l=>{ if(l.segmentId==null){ const m=tryMatchLabel(l); if(m){ l.segmentId=m.id; matched++; } } });
+    toast(matched? `Matched ${matched} tag(s).` : 'No matches found within lookback.', matched?'ok':'err');
+    renderAll();
+  };
+  document.getElementById('bulkDelete').onclick = ()=>{
+    if(!confirm(`Delete ${segIds.length} segment(s) and ${labelIds.length} tag(s)? This can be undone with Ctrl+Z.`)) return;
+    pushUndo();
+    if(segIds.length){
+      S.segments = S.segments.filter(s=>!S.multi.segIds.has(s.id));
+      S.labels.forEach(l=>{ if(l.segmentId!=null && S.multi.segIds.has(l.segmentId)) l.segmentId=null; });
+    }
+    if(labelIds.length) S.labels = S.labels.filter(l=>!S.multi.labelIds.has(l.id));
+    S.multi = {segIds:new Set(), labelIds:new Set()};
+    renderAll();
+  };
+  document.getElementById('bulkClear').onclick = clearMulti;
+}
+
+function renderSessionInspector(body){
+  const unmatched = S.labels.filter(l=>l.segmentId==null).length;
+  const warnCount = (S.warnings||[]).filter(w=>w.level==='warn').length;
+  const editedSeg = S.segments.filter(s=>s.edited||s.isNew).length;
+  const editedTag = S.labels.filter(l=>l.edited||l.isNew).length;
+  body.innerHTML = `
+    <div class="field-group">
+      <div class="field-group-title">Session</div>
+      <div class="stat-line"><span>Name</span><span class="v">${S.sessionName}</span></div>
+      <div class="stat-line"><span>Duration</span><span class="v">${fmtTime(S.totalDur)}</span></div>
+      <div class="stat-line"><span>Sensor samples</span><span class="v">${S.sensor.n.toLocaleString()}</span></div>
+      <div class="stat-line"><span>GPS fixes</span><span class="v">${S.gps.n.toLocaleString()}</span></div>
+      <div class="stat-line"><span>Segments</span><span class="v">${S.segments.length}</span></div>
+      <div class="stat-line"><span>Tags</span><span class="v">${S.labels.length}</span></div>
+    </div>
+    <div class="field-group">
+      <div class="field-group-title">Data quality</div>
+      <div class="stat-line"><span>Unmatched tags</span><span class="v ${unmatched?'warn':'good'}">${unmatched}</span></div>
+      <div class="stat-line"><span>Warnings</span><span class="v ${warnCount?'warn':'good'}">${warnCount}</span></div>
+      <div class="stat-line"><span>Segment edits</span><span class="v">${editedSeg}</span></div>
+      <div class="stat-line"><span>Tag edits</span><span class="v">${editedTag}</span></div>
+    </div>
+    <div class="field-group">
+      <div class="field-group-title">Severity mix (of ${S.segments.length} segments)</div>
+      ${renderSeverityMix()}
+    </div>
+    <div class="field-group">
+      <div class="field-group-title">Review</div>
+      <div class="stat-line"><span>Status</span><span class="v">${S.reviewState.replace('_',' ')}</span></div>
+      <div class="insp-actions">
+        <button id="btnMarkReview">Mark in review</button>
+        <button class="primary" id="btnMarkReviewed">Mark reviewed</button>
+      </div>
+    </div>`;
+  const b1=document.getElementById('btnMarkReview'); if(b1) b1.onclick=()=>setReviewState('IN_REVIEW');
+  const b2=document.getElementById('btnMarkReviewed'); if(b2) b2.onclick=()=>{ setReviewState('REVIEWED'); toast('Session marked reviewed. Export is now unrestricted.'); };
+}
+function renderSeverityMix(){
+  if(!S.segments.length) return '<div class="insp-empty">No segments.</div>';
+  const buckets = [0,0,0,0]; // 0-2,3-5,6-7,8-10
+  S.segments.forEach(s=>{ const m=peakToMScale(s.peakM); if(m<=2)buckets[0]++; else if(m<=5)buckets[1]++; else if(m<=7)buckets[2]++; else buckets[3]++; });
+  const labels=['M0\u2013M2 minor','M3\u2013M5 moderate','M6\u2013M7 severe','M8\u2013M10 critical'];
+  const cols=[severityColor(1),severityColor(4),severityColor(6.5),severityColor(9)];
+  const max = Math.max(...buckets,1);
+  return buckets.map((c,i)=>`<div style="margin-bottom:7px;">
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-dim);"><span>${labels[i]}</span><span class="v">${c}</span></div>
+      <div class="mbar"><div class="mbar-fill" style="width:${(c/max*100)}%;background:${cols[i]}"></div></div>
+    </div>`).join('');
+}
+
+function renderSegmentInspector(body){
+  const seg = S.segments.find(s=>s.id===S.selection.id);
+  if(!seg){ clearSelection(); return; }
+  const m = peakToMScale(seg.peakM);
+  const col = severityColor(m);
+  const labs = S.labels.filter(l=>l.segmentId===seg.id);
+  body.innerHTML = `
+    <div class="field-group">
+      <div class="field-group-title">Severity</div>
+      <div class="field-row"><span class="field-label">M-scale</span><span class="field-value big" style="color:${col}">M${Math.round(m)}</span></div>
+      <div class="mbar"><div class="mbar-fill" style="width:${m*10}%;background:${col}"></div></div>
+    </div>
+    <div class="field-group">
+      <div class="field-group-title">Timing</div>
+      <div class="field-row"><span class="field-label">Start</span><input type="text" id="segStart" value="${fmtTime(seg.startSec)}"></div>
+      <div class="field-row"><span class="field-label">Duration</span><input type="text" id="segDur" value="${fmtDur(seg.durSec)}" disabled style="opacity:.6"></div>
+      <div class="field-row"><span class="field-label">End</span><input type="text" id="segEnd" value="${fmtTime(seg.startSec+seg.durSec)}"></div>
+    </div>
+    <div class="field-group">
+      <div class="field-group-title">Magnitude (recomputed from raw signal over range)</div>
+      <div class="field-row"><span class="field-label">Peak M</span><span class="field-value">${seg.peakM.toFixed(3)} m/s\u00B2</span></div>
+      <div class="field-row"><span class="field-label">RMS M</span><span class="field-value">${seg.rmsM.toFixed(3)} m/s\u00B2</span></div>
+    </div>
+    <div class="field-group">
+      <div class="field-group-title">Context</div>
+      <div class="field-row"><span class="field-label">Speed</span><span class="field-value">${isFinite(seg.speedMps)?seg.speedMps.toFixed(3)+' m/s':'\u2013'}</span></div>
+      <div class="field-row"><span class="field-label">Tags on this segment</span><span class="field-value">${labs.length}</span></div>
+    </div>
+    <div class="insp-actions">
+      <button id="segApply" class="primary">Apply bounds</button>
+      <button id="segDelete" class="danger-btn">Delete segment</button>
+    </div>`;
+  document.getElementById('segApply').onclick = ()=>{
+    let startSec = parseTimeInput(document.getElementById('segStart').value);
+    let endSec = parseTimeInput(document.getElementById('segEnd').value);
+    if(startSec==null || endSec==null || endSec<=startSec){ toast('Enter valid mm:ss.mmm start/end times, with end after start.', 'err'); return; }
+    startSec = clamp(startSec, 0, S.totalDur); endSec = clamp(endSec, 0, S.totalDur);
+    if(endSec<=startSec){ toast('End must be after start within the session.', 'err'); return; }
+    pushUndo();
+    seg.startSec = startSec; seg.durSec = endSec-startSec; seg.edited = true;
+    recomputeSegmentStats(seg);
+    renderAll();
+  };
+  document.getElementById('segDelete').onclick = ()=>{
+    if(!confirm('Delete this segment? Tags pointing to it become unmatched.')) return;
+    pushUndo();
+    S.segments = S.segments.filter(s=>s.id!==seg.id);
+    S.labels.forEach(l=>{ if(l.segmentId===seg.id) l.segmentId=null; });
+    clearSelection(); renderAll();
+  };
+}
+
+function parseTimeInput(str){
+  str = str.trim();
+  const m = str.match(/^(-?\d+):(\d+(\.\d+)?)$/);
+  if(m) return (str.startsWith('-')?-1:1) * (Math.abs(Number(m[1]))*60 + Number(m[2]));
+  const n = Number(str);
+  return isFinite(n) ? n : null;
+}
+
+function recomputeSegmentStats(seg){
+  const sn = S.sensor;
+  const i0 = lowerBound(sn.tSec, seg.startSec);
+  const i1 = lowerBound(sn.tSec, seg.startSec+seg.durSec);
+  let peak=0, sumSq=0, n=0;
+  for(let i=i0;i<i1 && i<sn.n;i++){ const v=Math.abs(sn.vertical[i]); if(v>peak) peak=v; sumSq+=v*v; n++; }
+  seg.peakM = n? peak : seg.peakM;
+  seg.rmsM = n? Math.sqrt(sumSq/n) : seg.rmsM;
+}
+
+// Backward-lookback match, mirroring TagMatcher's intended design: prefer
+// the segment open at tag-time, else the most recent one closed within
+// lookbackSec beforehand.
+function tryMatchLabel(l, lookbackSec){
+  lookbackSec = lookbackSec==null ? 8 : lookbackSec;
+  let best=null;
+  S.segments.forEach(seg=>{
+    const segEnd = seg.startSec+seg.durSec;
+    if(seg.startSec<=l.tSec && l.tSec<=segEnd+lookbackSec){
+      if(!best || seg.startSec>best.startSec) best=seg;
+    }
+  });
+  return best;
+}
+
+function renderLabelInspector(body){
+  const l = S.labels.find(x=>x.id===S.selection.id);
+  if(!l){ clearSelection(); return; }
+  const seg = l.segmentId!=null ? S.segments.find(s=>s.id===l.segmentId) : null;
+  body.innerHTML = `
+    <div class="field-group">
+      <div class="field-group-title">Tag</div>
+      <div class="field-row"><span class="field-label">Label</span>
+        <select id="lblSel">${KNOWN_LABELS.map(k=>`<option value="${k}" ${k===l.label?'selected':''}>${k}</option>`).join('')}<option value="__custom__" ${!KNOWN_LABELS.includes(l.label)?'selected':''}>Custom\u2026</option></select>
+      </div>
+      <div class="field-row" id="customRow" style="${KNOWN_LABELS.includes(l.label)?'display:none;':''}"><span class="field-label">Custom text</span><input type="text" id="lblCustom" value="${!KNOWN_LABELS.includes(l.label)?l.label:''}"></div>
+      <div class="field-row"><span class="field-label">Timestamp</span><input type="text" id="lblTime" value="${fmtTime(l.tSec)}"></div>
+    </div>
+    <div class="field-group">
+      <div class="field-group-title">Match</div>
+      <div class="field-row"><span class="field-label">Segment</span><span class="field-value ${seg?'':'warn'}">${seg? fmtTime(seg.startSec) : 'unmatched'}</span></div>
+      <div class="field-row"><span class="field-label">Tap offset</span><span class="field-value">${isFinite(l.tapOffsetMs)?l.tapOffsetMs.toFixed(0)+' ms':'\u2013'}</span></div>
+      <div class="insp-actions">
+        ${seg?`<button id="lblLocate">Locate segment</button>`:`<button id="lblAutoMatch">Auto-match (8s lookback)</button>`}
+      </div>
+    </div>
+    <div class="insp-actions">
+      <button id="lblApply" class="primary">Apply</button>
+      <button id="lblDelete" class="danger-btn">Delete tag</button>
+    </div>`;
+  document.getElementById('lblSel').onchange = (e)=>{ document.getElementById('customRow').style.display = e.target.value==='__custom__' ? '' : 'none'; };
+  const locBtn = document.getElementById('lblLocate'); if(locBtn) locBtn.onclick=()=>{ selectItem('segment', seg.id); focusOn(seg); };
+  const amBtn = document.getElementById('lblAutoMatch'); if(amBtn) amBtn.onclick=()=>{
+    const m = tryMatchLabel(l);
+    if(!m){ toast('No segment found within an 8s lookback of this tag.', 'err'); return; }
+    pushUndo(); l.segmentId = m.id; l.edited=true; renderAll(); toast('Matched to segment at '+fmtTime(m.startSec)+'.', 'ok');
+  };
+  document.getElementById('lblApply').onclick = ()=>{
+    const sel = document.getElementById('lblSel').value;
+    const finalLabel = sel==='__custom__' ? (document.getElementById('lblCustom').value.trim()||'Unlabeled') : sel;
+    const t = parseTimeInput(document.getElementById('lblTime').value);
+    if(t==null){ toast('Enter a valid mm:ss.mmm timestamp.', 'err'); return; }
+    pushUndo();
+    l.label = finalLabel; l.tSec = clamp(t,0,S.totalDur); l.edited = true;
+    renderAll();
+  };
+  document.getElementById('lblDelete').onclick = ()=>{
+    pushUndo();
+    S.labels = S.labels.filter(x=>x.id!==l.id);
+    clearSelection(); renderAll();
+  };
+}
+
+function renderRangeInspector(body){
+  const ranges = buildRanges();
+  const r = ranges.find(x=>x.id===S.selection.id);
+  if(!r){ clearSelection(); return; }
+  const st = S.labels.find(x=>x.id===r.startLabelId);
+  const en = r.endLabelId!=null ? S.labels.find(x=>x.id===r.endLabelId) : null;
+  body.innerHTML = `
+    <div class="field-group">
+      <div class="field-group-title">Range tag</div>
+      <div class="field-row"><span class="field-label">Label</span><input type="text" id="rgLabel" value="${r.label}"></div>
+      <div class="field-row"><span class="field-label">Start</span><input type="text" id="rgStart" value="${fmtTime(r.startSec)}"></div>
+      <div class="field-row"><span class="field-label">End</span><input type="text" id="rgEnd" value="${en?fmtTime(r.endSec):''}" ${en?'':'disabled placeholder="no end tag"'}></div>
+      <div class="field-row"><span class="field-label">Duration</span><span class="field-value">${en?fmtDur(r.endSec-r.startSec):'\u2013 (open)'}</span></div>
+    </div>
+    <div class="insp-actions">
+      <button id="rgApply" class="primary">Apply</button>
+      <button id="rgDelete" class="danger-btn">Delete range</button>
+    </div>`;
+  document.getElementById('rgApply').onclick = ()=>{
+    const label = document.getElementById('rgLabel').value.trim()||'Rough stretch';
+    const startSec = parseTimeInput(document.getElementById('rgStart').value);
+    const endSec = en ? parseTimeInput(document.getElementById('rgEnd').value) : null;
+    if(startSec==null || (en && endSec==null)){ toast('Enter valid mm:ss.mmm times.', 'err'); return; }
+    pushUndo();
+    st.label = label; st.tSec = clamp(startSec,0,S.totalDur); st.edited=true;
+    if(en){ en.label = label; en.tSec = clamp(endSec,0,S.totalDur); en.edited=true; }
+    renderAll();
+  };
+  document.getElementById('rgDelete').onclick = ()=>{
+    pushUndo();
+    S.labels = S.labels.filter(x=>x.id!==r.startLabelId && x.id!==r.endLabelId);
+    clearSelection(); renderAll();
+  };
+}
+
+/* =========================================================================
+   WAVEFORM CANVAS
+   ========================================================================= */
+
+const wave = document.getElementById('waveCanvas');
+const wctx = wave.getContext('2d');
+const wrap = document.getElementById('waveCanvasWrap');
+const tip = document.getElementById('waveTip');
+let waveDpr = 1;
+
+function resizeCanvases(){
+  [ [wave, wctx, wrap], [mini, mctx, document.getElementById('miniPane')] ].forEach(([cv,ctx,container])=>{
+    const rect = container.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    cv.width = Math.max(1, Math.floor(rect.width*dpr));
+    cv.height = Math.max(1, Math.floor(rect.height*dpr));
+    cv.style.width = rect.width+'px'; cv.style.height = rect.height+'px';
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  });
+  requestDraw(); drawMinimap();
+}
+window.addEventListener('resize', resizeCanvases);
+
+// The wave/mini canvases live inside panes that start hidden (or get
+// resized by dragging the panel resizers below) -- a plain window 'resize'
+// listener misses both cases, which is exactly what left the waveform
+// canvas stuck at its initial 1x1 buffer. ResizeObserver reports whenever
+// the observed element's own box actually changes, regardless of cause.
+if(typeof ResizeObserver !== 'undefined'){
+  const ro = new ResizeObserver(()=>{ resizeCanvases(); if(map) map.invalidateSize(); });
+  ro.observe(wrap);
+  ro.observe(document.getElementById('miniPane'));
+  ro.observe(document.getElementById('mapPane'));
+}
+
+/* =========================================================================
+   RESIZABLE PANELS
+   ========================================================================= */
+
+(function initResizers(){
+  const gridEl = document.getElementById('grid');
+  const LS_KEY = 'aitken_workbench_layout';
+  let saved = {};
+  try{ saved = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); }catch(e){}
+  const sizes = { tree: saved.tree||270, insp: saved.insp||330, mini: saved.mini||96, map: saved.map||220 };
+
+  function applySizes(){
+    gridEl.style.gridTemplateColumns = sizes.tree+'px 6px 1fr 6px '+sizes.insp+'px';
+    gridEl.style.gridTemplateRows = '1fr 6px '+sizes.mini+'px 6px '+sizes.map+'px';
+  }
+  applySizes();
+
+  function persist(){ try{ localStorage.setItem(LS_KEY, JSON.stringify(sizes)); }catch(e){} }
+  function afterResize(){ resizeCanvases(); if(map) map.invalidateSize(); }
+
+  function bindCol(id, key, min, max, fromRight){
+    const el = document.getElementById(id);
+    el.addEventListener('mousedown', (e)=>{
+      e.preventDefault();
+      const startX = e.clientX, start = sizes[key];
+      el.classList.add('active');
+      function move(ev){
+        const dx = ev.clientX-startX;
+        sizes[key] = clamp(start + (fromRight?-dx:dx), min, max);
+        applySizes(); afterResize();
+      }
+      function up(){ document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',up); el.classList.remove('active'); persist(); }
+      document.addEventListener('mousemove',move); document.addEventListener('mouseup',up);
+    });
+  }
+  function bindRow(id, key, min, max){
+    const el = document.getElementById(id);
+    el.addEventListener('mousedown', (e)=>{
+      e.preventDefault();
+      const startY = e.clientY, start = sizes[key];
+      el.classList.add('active');
+      function move(ev){
+        const dy = ev.clientY-startY;
+        sizes[key] = clamp(start - dy, min, max);
+        applySizes(); afterResize();
+      }
+      function up(){ document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',up); el.classList.remove('active'); persist(); }
+      document.addEventListener('mousemove',move); document.addEventListener('mouseup',up);
+    });
+  }
+  // rRowMap sits between two fixed-height tracks (mini, map) -- neither is
+  // the flexible row, so dragging it must transfer height between the two
+  // rather than only touching one (which would silently resize the
+  // waveform row instead of the row the user is actually looking at).
+  function bindRowTransfer(id, keyAbove, keyBelow, min, max){
+    const el = document.getElementById(id);
+    el.addEventListener('mousedown', (e)=>{
+      e.preventDefault();
+      const startY = e.clientY, startAbove = sizes[keyAbove], startBelow = sizes[keyBelow];
+      el.classList.add('active');
+      function move(ev){
+        const dy = ev.clientY-startY;
+        let above = startAbove+dy, below = startBelow-dy;
+        if(above<min){ below-=(min-above); above=min; }
+        if(above>max){ below+=(above-max); above=max; }
+        if(below<min){ above-=(min-below); below=min; }
+        if(below>max){ above+=(below-max); below=max; }
+        sizes[keyAbove]=above; sizes[keyBelow]=below;
+        applySizes(); afterResize();
+      }
+      function up(){ document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',up); el.classList.remove('active'); persist(); }
+      document.addEventListener('mousemove',move); document.addEventListener('mouseup',up);
+    });
+  }
+  bindCol('rColTree','tree',180,520,false);
+  bindCol('rColInsp','insp',220,560,true);
+  bindRow('rRowMini','mini',50,320);
+  bindRowTransfer('rRowMap','mini','map',50,400);
+})();
+
+const PAD = {l:52, r:14, t:14, b:26};
+
+function channelSeries(chKey){
+  const sn = S.sensor;
+  if(chKey==='vertical') return sn.vertical;
+  if(chKey==='jerk') return sn.jerk;
+  if(chKey==='rollStd') return sn.rollStd;
+  if(chKey==='ax') return sn.ax;
+  if(chKey==='ay') return sn.ay;
+  if(chKey==='az') return sn.az;
+  if(chKey==='gx') return sn.gx;
+  if(chKey==='gy') return sn.gy;
+  if(chKey==='gz') return sn.gz;
+  return sn.vertical;
+}
+function ensureRecompute(){
+  if(S.recomputeCache) return S.recomputeCache;
+  const vertical = recomputeVertical(S.sensor);
+  const jerk = recomputeJerk(S.sensor, vertical, 4);
+  const rollStd = recomputeRollingStd(vertical, 20);
+  S.recomputeCache = {vertical, jerk, rollStd};
+  return S.recomputeCache;
+}
+// Unified dispatcher: raw sensor channels return instantly; metric/standards
+// views are computed on demand and cached against a signature of the
+// tunables that affect them, so dragging a slider recomputes once, not
+// every animation frame.
+function computeChannelSeries(key){
+  if(CHANNEL_META[key]) return channelSeries(key);
+  const sn = S.sensor;
+  const t = S.metricTunables;
+  const baseVert = S.showRecompute ? ensureRecompute().vertical : sn.vertical;
+  const sig = key+'|'+JSON.stringify(t)+'|'+S.showRecompute;
+  if(S._metricCache && S._metricCache.sig===sig) return S._metricCache.series;
+  let series;
+  if(key==='peak') series = windowedPeakRMS(baseVert, sn.tSec, t.peakWindowMs).peak;
+  else if(key==='rms') series = windowedPeakRMS(baseVert, sn.tSec, t.rmsWindowMs).rms;
+  else if(key==='vdv') series = rollingVDV(baseVert, sn.tSec, t.vdvWindowMs);
+  else if(key==='crest'){ const pr=windowedPeakRMS(baseVert, sn.tSec, t.cfWindowMs); series=crestFactorSeries(pr.peak,pr.rms); }
+  else if(key==='mtvv') series = runningRmsEMA(baseVert, sn.tSec, t.mtvvTauMs);
+  else if(key==='jerkStd') series = S.showRecompute ? ensureRecompute().jerk : sn.jerk;
+  else if(key==='bandpass') series = biquadBandpass(baseVert, sn.tSec, t.bpFreqHz, t.bpQ, t.bpGainDb);
+  else if(key==='hybrid'){ const pr=windowedPeakRMS(baseVert, sn.tSec, t.hybridWindowMs); series=hybridSeries(pr.peak,pr.rms,t.hybridAlpha); }
+  else series = sn.vertical;
+  S._metricCache = {sig, series};
+  return series;
+}
+function channelDisplayMeta(key){
+  if(CHANNEL_META[key]) return CHANNEL_META[key];
+  const m = METRIC_DEFS[key];
+  return m ? {name:m.name, unit:m.unit} : {name:key, unit:''};
+}
+
+// Detection-tunable calibration + simulated segments, cached against a
+// signature so re-running the full detector on a 200k-sample session only
+// happens when a tunable actually changes.
+function getCalibration(tunables){
+  const sn = S.sensor;
+  const baseVert = S.showRecompute ? ensureRecompute().vertical : sn.vertical;
+  const sig = JSON.stringify(tunables)+'|'+S.showRecompute;
+  if(S._calibCache && S._calibCache.sig===sig) return S._calibCache.calib;
+  const calib = simulateCalibration(baseVert, sn.tSec, tunables);
+  S._calibCache = {sig, calib};
+  return calib;
+}
+function getSimSegments(){
+  const sn = S.sensor;
+  const t = S.detectionTunables;
+  const baseVert = S.showRecompute ? ensureRecompute().vertical : sn.vertical;
+  const sig = JSON.stringify(t)+'|'+S.showRecompute;
+  if(S._simCache && S._simCache.sig===sig) return S._simCache;
+  const calib = getCalibration(t);
+  const segs = simulateSegmentDetector(baseVert, sn.tSec, sn.gz, t, calib);
+  S._simCache = {sig, calib, segs};
+  return S._simCache;
+}
+
+let drawPending=false;
+function requestDraw(){ if(drawPending) return; drawPending=true; requestAnimationFrame(()=>{ drawPending=false; drawWave(); }); }
+
+function drawWave(){
+  const rect = wrap.getBoundingClientRect();
+  const W = rect.width, H = rect.height;
+  wctx.clearRect(0,0,W,H);
+  wctx.fillStyle = '#0D1117'; wctx.fillRect(0,0,W,H);
+  if(!S.loaded) return;
+
+  PAD.r = S.showSpeed ? 38 : 14;
+  const plotW = W-PAD.l-PAD.r, plotH = H-PAD.t-PAD.b;
+  const {start:vs, end:ve} = S.view;
+  const sn = S.sensor;
+  const i0 = Math.max(0, lowerBound(sn.tSec, vs)-1);
+  const i1 = Math.min(sn.n, lowerBound(sn.tSec, ve)+1);
+
+  const isMetric = !CHANNEL_META[S.channel];
+  const series = computeChannelSeries(S.channel);
+  let recSeries = null;
+  if(S.showRecompute && !isMetric){
+    const rc = ensureRecompute();
+    recSeries = S.channel==='vertical'?rc.vertical : S.channel==='jerk'?rc.jerk : S.channel==='rollStd'?rc.rollStd : null;
+  }
+
+  // y-range from visible samples
+  let ymin=Infinity, ymax=-Infinity;
+  for(let i=i0;i<i1;i++){
+    const v=series[i]; if(isFinite(v)){ if(v<ymin)ymin=v; if(v>ymax)ymax=v; }
+    if(recSeries){ const v2=recSeries[i]; if(isFinite(v2)){ if(v2<ymin)ymin=v2; if(v2>ymax)ymax=v2; } }
+  }
+  if(!isFinite(ymin)||!isFinite(ymax)){ ymin=-1; ymax=1; }
+  if(ymax-ymin < 0.5){ const c=(ymax+ymin)/2; ymin=c-0.5; ymax=c+0.5; }
+  const headroom = (ymax-ymin)*0.12; ymin-=headroom; ymax+=headroom;
+
+  const mapX = t => PAD.l + (t-vs)/(ve-vs)*plotW;
+  const mapY = v => PAD.t + (1-(v-ymin)/(ymax-ymin))*plotH;
+  S._mapX=mapX; S._mapY=mapY; S._ymin=ymin; S._ymax=ymax; S._vs=vs; S._ve=ve; S._plotH=plotH; S._plotW=plotW;
+
+  // grid
+  wctx.strokeStyle = '#1B212B'; wctx.lineWidth=1; wctx.font='10px '+getComputedStyle(document.body).getPropertyValue('--font-mono');
+  wctx.fillStyle = '#566072';
+  const yTicks=5;
+  for(let i=0;i<=yTicks;i++){
+    const v = ymin + (ymax-ymin)*i/yTicks;
+    const y = mapY(v);
+    wctx.beginPath(); wctx.moveTo(PAD.l,y); wctx.lineTo(W-PAD.r,y); wctx.stroke();
+    wctx.fillText(v.toFixed(v<10?2:1), 4, y+3);
+  }
+  const span = ve-vs;
+  const targetPx = 90;
+  const rawStep = span/(plotW/targetPx);
+  const niceSteps = [0.001,0.002,0.005,0.01,0.02,0.05,0.1,0.2,0.5,1,2,5,10,15,30,60,120,300,600];
+  let step = niceSteps.find(s=>s>=rawStep) || niceSteps[niceSteps.length-1];
+  let tt = Math.ceil(vs/step)*step;
+  wctx.strokeStyle='#1B212B';
+  for(; tt<ve; tt+=step){
+    const x = mapX(tt);
+    wctx.beginPath(); wctx.moveTo(x,PAD.t); wctx.lineTo(x,H-PAD.b); wctx.stroke();
+    wctx.fillText(fmtTime(tt), x+3, H-8);
+  }
+
+  // comfort/severity bands for standards views (skip for raw signal + 'sev'-type metrics)
+  if(isMetric && METRIC_DEFS[S.channel] && METRIC_DEFS[S.channel].band!=='sev'){
+    drawComfortBands(METRIC_DEFS[S.channel].band, mapY, ymin, ymax, PAD.l, plotW);
+  }
+
+  // segments
+  if(S.showSegments){
+    S.segments.forEach(seg=>{
+      const segEnd = seg.startSec+seg.durSec;
+      if(segEnd < vs || seg.startSec > ve) return;
+      const x0=mapX(Math.max(seg.startSec,vs)), x1=mapX(Math.min(segEnd,ve));
+      const m = peakToMScale(seg.peakM); const col = severityColor(m);
+      const isSel = S.selection.type==='segment'&&S.selection.id===seg.id;
+      const isMulti = S.multi.segIds.has(seg.id);
+      wctx.fillStyle = col.replace('rgb','rgba').replace(')', isSel? ',0.22)':',0.10)');
+      wctx.fillRect(x0, PAD.t, Math.max(1,x1-x0), plotH);
+      wctx.strokeStyle = col; wctx.lineWidth = isSel?2:1;
+      wctx.strokeRect(x0, PAD.t, Math.max(1,x1-x0), plotH);
+      wctx.fillStyle = col; wctx.font='bold 10px '+getComputedStyle(document.body).getPropertyValue('--font-mono');
+      wctx.fillText('M'+Math.round(m), x0+4, PAD.t+12);
+      if(isSel){
+        wctx.fillStyle='#fff';
+        [x0,x1].forEach(hx=>{ wctx.fillRect(hx-2, PAD.t, 4, plotH); });
+      }
+      if(isMulti){
+        wctx.strokeStyle='#ffffff'; wctx.lineWidth=2; wctx.setLineDash([4,3]);
+        wctx.strokeRect(x0+2, PAD.t+2, Math.max(1,x1-x0-4), plotH-4);
+        wctx.setLineDash([]);
+      }
+    });
+  }
+
+  // simulated ("what if") segments -- a thin dashed strip at the very top,
+  // deliberately not full-height/color-coded like real segments so the two
+  // are never visually confused. Non-destructive: never touches S.segments.
+  if(S.simulateOn){
+    const sim = getSimSegments();
+    const laneTop = PAD.t+2, laneH = 7;
+    sim.segs.forEach(seg=>{
+      const segEnd = seg.startSec+seg.durSec;
+      if(segEnd<vs || seg.startSec>ve) return;
+      const x0=mapX(Math.max(seg.startSec,vs)), x1=mapX(Math.min(segEnd,ve));
+      wctx.fillStyle='rgba(255,255,255,0.55)';
+      wctx.fillRect(x0, laneTop, Math.max(1,x1-x0), laneH);
+    });
+    wctx.fillStyle='#ffffff'; wctx.font='9px '+getComputedStyle(document.body).getPropertyValue('--font-mono');
+    wctx.fillText('simulated segments', PAD.l+2, laneTop+laneH+9);
+  }
+
+  // calibration reference lines (rolling-std thresholds), only meaningful
+  // on the rollStd view where the real detector's hysteresis actually acts.
+  if(S.showCalibLine && S.channel==='rollStd'){
+    const drawLine=(v,color,label)=>{
+      if(v<ymin||v>ymax) return;
+      const y=mapY(v);
+      wctx.strokeStyle=color; wctx.setLineDash([6,4]); wctx.lineWidth=1.3;
+      wctx.beginPath(); wctx.moveTo(PAD.l,y); wctx.lineTo(W-PAD.r,y); wctx.stroke(); wctx.setLineDash([]);
+      wctx.fillStyle=color; wctx.font='10px '+getComputedStyle(document.body).getPropertyValue('--font-mono');
+      wctx.fillText(label, W-PAD.r-4-wctx.measureText(label).width, y-4);
+    };
+    if(S.sessionConfig && isFinite(S.sessionConfig.calibratedShortStdThreshold)){
+      drawLine(S.sessionConfig.calibratedShortStdThreshold, '#AAB4C2', 'recorded short thresh');
+      drawLine(S.sessionConfig.calibratedLongStdThreshold, '#7C8695', 'recorded long thresh');
+    }
+    if(S.simulateOn){
+      const calib = getCalibration(S.detectionTunables);
+      drawLine(calib.shortStdThreshold, '#F09330', 'sim short thresh');
+      drawLine(calib.longStdThreshold, '#D6483F', 'sim long thresh');
+    }
+  }
+
+  // range tags (brackets near bottom of plot)
+  if(S.showTags){
+    const laneY = PAD.t + plotH - 16;
+    buildRanges().forEach(r=>{
+      if(r.endSec<vs || r.startSec>ve) return;
+      const x0=mapX(Math.max(r.startSec,vs)), x1=mapX(Math.min(r.endSec,ve));
+      const col = labelColor(r.label);
+      const isSel = S.selection.type==='range'&&S.selection.id===r.id;
+      wctx.strokeStyle=col; wctx.lineWidth=isSel?3:2;
+      wctx.beginPath();
+      wctx.moveTo(x0,laneY-6); wctx.lineTo(x0,laneY); wctx.lineTo(x1,laneY); wctx.lineTo(x1,laneY-6);
+      wctx.stroke();
+      wctx.fillStyle=col; wctx.font='10px '+getComputedStyle(document.body).getPropertyValue('--font-ui');
+      wctx.fillText(r.label, x0+3, laneY-9);
+    });
+    // point tags
+    S.labels.filter(l=>l.kind==='POINT').forEach(l=>{
+      if(l.tSec<vs || l.tSec>ve) return;
+      const x = mapX(l.tSec);
+      const col = labelColor(l.label);
+      const isSel = S.selection.type==='label'&&S.selection.id===l.id;
+      const isMulti = S.multi.labelIds.has(l.id);
+      wctx.strokeStyle=col; wctx.lineWidth=isSel?2:1; wctx.setLineDash([3,3]);
+      wctx.beginPath(); wctx.moveTo(x,PAD.t); wctx.lineTo(x,PAD.t+plotH); wctx.stroke(); wctx.setLineDash([]);
+      if(isMulti){ wctx.strokeStyle='#fff'; wctx.beginPath(); wctx.arc(x, PAD.t+8, 8, 0, Math.PI*2); wctx.lineWidth=2; wctx.stroke(); }
+      wctx.fillStyle=col;
+      wctx.beginPath(); wctx.arc(x, PAD.t+8, isSel?5:4, 0, Math.PI*2); wctx.fill();
+      wctx.font='10px '+getComputedStyle(document.body).getPropertyValue('--font-ui');
+      wctx.fillText(l.label, x+6, PAD.t+11);
+    });
+  }
+
+  // primary trace (adaptive: full-resolution when zoomed in, peak-preserving
+  // min/max envelope when there are more samples than pixels -- this is
+  // what actually fixes long-session pan/zoom lag, without discarding any
+  // data or touching what gets exported)
+  drawTraceAdaptive(series, i0, i1, mapX, mapY, '#4FC3F7', 1.6);
+  if(recSeries) drawTraceAdaptive(recSeries, i0, i1, mapX, mapY, '#B39DDB', 1.3, true);
+
+  // speed overlay -- secondary right-hand axis, its own scale (starts at 0)
+  if(S.showSpeed && S.gps.n){
+    const gi0 = Math.max(0, lowerBound(S.gps.tSec, vs)-1);
+    const gi1 = Math.min(S.gps.n, lowerBound(S.gps.tSec, ve)+1);
+    const conv = S.speedUnit==='kph' ? 3.6 : 1;
+    let smax=0;
+    for(let i=gi0;i<gi1;i++){ const v=S.gps.speed[i]; if(isFinite(v) && v*conv>smax) smax=v*conv; }
+    smax = Math.max(smax*1.15, 1);
+    const mapYs = v => PAD.t + (1-(v-0)/(smax-0))*plotH;
+    wctx.fillStyle='#C9A94B'; wctx.font='10px '+getComputedStyle(document.body).getPropertyValue('--font-mono');
+    const sTicks=4;
+    for(let i=0;i<=sTicks;i++){
+      const v=smax*i/sTicks, y=mapYs(v);
+      wctx.fillText(v.toFixed(0), W-PAD.r+5, y+3);
+    }
+    wctx.strokeStyle='#E0C168'; wctx.lineWidth=1.4;
+    wctx.beginPath();
+    let started=false;
+    for(let i=gi0;i<gi1;i++){
+      const v=S.gps.speed[i]; if(!isFinite(v)){ started=false; continue; }
+      const x=mapX(S.gps.tSec[i]), y=mapYs(v*conv);
+      if(!started){ wctx.moveTo(x,y); started=true; } else wctx.lineTo(x,y);
+    }
+    wctx.stroke();
+  }
+
+  // legend
+  wctx.font='11px '+getComputedStyle(document.body).getPropertyValue('--font-ui');
+  const cm = channelDisplayMeta(S.channel);
+  wctx.fillStyle='#4FC3F7'; wctx.fillText('\u2014 '+cm.name+' ('+cm.unit+')', W-PAD.r-260, PAD.t+2);
+  if(recSeries){ wctx.fillStyle='#B39DDB'; wctx.fillText('\u2014 recomputed (JS DSP)', W-PAD.r-260, PAD.t+16); }
+  if(S.showSpeed && S.gps.n){ wctx.fillStyle='#E0C168'; wctx.fillText('\u2014 Speed ('+(S.speedUnit==='kph'?'km/h':'m/s')+')', W-PAD.r-260, PAD.t+(recSeries?30:16)); }
+
+  // drag feedback: new-segment rectangle (blue, matches segment styling) vs.
+  // marquee multiselect (white dashed, a "selection" affordance, not data)
+  if(S.drag && S.drag.type==='newSegment'){
+    const x0=mapX(S.drag.aSec), x1=mapX(S.drag.bSec);
+    wctx.fillStyle='rgba(79,195,247,0.15)'; wctx.fillRect(Math.min(x0,x1),PAD.t,Math.abs(x1-x0),plotH);
+    wctx.strokeStyle='#4FC3F7'; wctx.lineWidth=1.5; wctx.strokeRect(Math.min(x0,x1),PAD.t,Math.abs(x1-x0),plotH);
+  }
+  if(S.drag && S.drag.type==='marquee'){
+    const x0=mapX(S.drag.aSec), x1=mapX(S.drag.bSec);
+    wctx.fillStyle='rgba(255,255,255,0.07)'; wctx.fillRect(Math.min(x0,x1),PAD.t,Math.abs(x1-x0),plotH);
+    wctx.strokeStyle='#ffffff'; wctx.lineWidth=1.2; wctx.setLineDash([5,3]);
+    wctx.strokeRect(Math.min(x0,x1),PAD.t,Math.abs(x1-x0),plotH);
+    wctx.setLineDash([]);
+  }
+  if(S.addMode==='rangeEnd' && S.rangeStartSec!=null){
+    const x0=mapX(S.rangeStartSec);
+    wctx.strokeStyle='#C776DD'; wctx.setLineDash([4,4]); wctx.beginPath(); wctx.moveTo(x0,PAD.t); wctx.lineTo(x0,PAD.t+plotH); wctx.stroke(); wctx.setLineDash([]);
+  }
+}
+
+function drawComfortBands(bandKey, mapY, ymin, ymax, x0, w){
+  const bands = COMFORT_BANDS[bandKey]; if(!bands) return;
+  bands.forEach(([lo,hi,color])=>{
+    const top = mapY(Math.min(hi,ymax));
+    const bot = mapY(Math.max(lo,ymin));
+    if(bot<=top+0.5) return;
+    wctx.fillStyle = color+'20';
+    wctx.fillRect(x0, top, w, bot-top);
+  });
+}
+
+function drawTrace(series, i0, i1, mapX, mapY, color, width, dashed){
+  wctx.strokeStyle=color; wctx.lineWidth=width;
+  if(dashed) wctx.setLineDash([5,3]);
+  wctx.beginPath();
+  let started=false;
+  for(let i=i0;i<i1;i++){
+    const v=series[i]; if(!isFinite(v)) { started=false; continue; }
+    const x=mapX(S.sensor.tSec[i]), y=mapY(v);
+    if(!started){ wctx.moveTo(x,y); started=true; } else wctx.lineTo(x,y);
+  }
+  wctx.stroke();
+  if(dashed) wctx.setLineDash([]);
+}
+// Draws every sample when zoomed in close enough for it to matter; once
+// there are more than ~2 samples per pixel, switches to a peak-preserving
+// min/max envelope (one vertical stroke per pixel column) instead -- this
+// is what keeps a 200k+ sample, 30+ minute session responsive to pan/zoom,
+// without discarding a single raw sample from memory or from export.
+function drawTraceAdaptive(series, i0, i1, mapX, mapY, color, width, dashed){
+  const n = i1-i0;
+  const plotPx = Math.max(1, Math.round(S._plotW));
+  if(n <= plotPx*2){ drawTrace(series, i0, i1, mapX, mapY, color, width, dashed); return; }
+  wctx.strokeStyle=color; wctx.lineWidth=Math.max(width,1);
+  if(dashed) wctx.setLineDash([4,3]);
+  wctx.beginPath();
+  const tSec = S.sensor.tSec;
+  let bucket=null, bmin=Infinity, bmax=-Infinity;
+  const flush=()=>{
+    if(bucket==null) return;
+    const x = PAD.l + bucket + 0.5;
+    wctx.moveTo(x, mapY(bmin));
+    wctx.lineTo(x, mapY(bmax));
+  };
+  for(let i=i0;i<i1;i++){
+    const v=series[i]; if(!isFinite(v)) continue;
+    const x = mapX(tSec[i]);
+    const b = Math.floor(x-PAD.l);
+    if(b!==bucket){ flush(); bucket=b; bmin=v; bmax=v; } else { if(v<bmin)bmin=v; if(v>bmax)bmax=v; }
+  }
+  flush();
+  wctx.stroke();
+  if(dashed) wctx.setLineDash([]);
+}
+
+/* ---- waveform interaction ---- */
+
+function segHandleHit(x, y, plotH){
+  if(S.selection.type!=='segment') return null;
+  const seg = S.segments.find(s=>s.id===S.selection.id); if(!seg) return null;
+  const x0=S._mapX(seg.startSec), x1=S._mapX(seg.startSec+seg.durSec);
+  if(y<PAD.t-4 || y>PAD.t+plotH+4) return null;
+  if(Math.abs(x-x0)<7) return {seg, edge:'start'};
+  if(Math.abs(x-x1)<7) return {seg, edge:'end'};
+  return null;
+}
+function rangeHandleHit(x,y){
+  if(S.selection.type!=='range') return null;
+  const r = buildRanges().find(x2=>x2.id===S.selection.id); if(!r) return null;
+  const laneY = PAD.t + S._plotH - 16;
+  if(Math.abs(y-laneY)>8) return null;
+  const x0=S._mapX(r.startSec);
+  if(Math.abs(x-x0)<7) return {range:r, edge:'start'};
+  if(r.endLabelId!=null){
+    const x1=S._mapX(r.endSec);
+    if(Math.abs(x-x1)<7) return {range:r, edge:'end'};
+  }
+  return null;
+}
+function hitSegment(x,y){
+  if(!S.showSegments) return null;
+  for(const seg of S.segments){
+    const x0=S._mapX(seg.startSec), x1=S._mapX(seg.startSec+seg.durSec);
+    if(x>=x0 && x<=x1 && y>=PAD.t && y<=PAD.t+S._plotH) return seg;
+  }
+  return null;
+}
+function hitPointTag(x,y){
+  if(!S.showTags) return null;
+  let best=null, bestD=10;
+  S.labels.filter(l=>l.kind==='POINT').forEach(l=>{
+    const lx = S._mapX(l.tSec);
+    const d = Math.abs(lx-x);
+    if(d<bestD && y<PAD.t+22){ best=l; bestD=d; }
+  });
+  return best;
+}
+
+wave.addEventListener('mousedown', (e)=>{
+  if(!S.loaded) return;
+  const rect = wrap.getBoundingClientRect();
+  const x = e.clientX-rect.left, y = e.clientY-rect.top;
+  const tSec = S._vs + (x-PAD.l)/S._plotW*(S._ve-S._vs);
+
+  if(S.addMode==='point'){
+    openAddTagModal('point', tSec);
+    return;
+  }
+  if(S.addMode==='rangeStart'){
+    S.rangeStartSec = clamp(tSec,0,S.totalDur); S.addMode='rangeEnd'; updateAddHint(); requestDraw(); return;
+  }
+  if(S.addMode==='rangeEnd'){
+    const a = S.rangeStartSec, b = clamp(tSec,0,S.totalDur);
+    S.addMode=null; updateAddHint();
+    openAddTagModal('range', Math.min(a,b), Math.max(a,b));
+    return;
+  }
+  if(S.addMode==='segment'){
+    S.drag = {type:'newSegment', aSec:clamp(tSec,0,S.totalDur), bSec:clamp(tSec,0,S.totalDur)};
+    return;
+  }
+
+  if(e.shiftKey){
+    const seg = hitSegment(x,y);
+    if(seg){ toggleMultiSegment(seg.id); return; }
+    const ptTag = hitPointTag(x,y);
+    if(ptTag){ toggleMultiLabel(ptTag.id); return; }
+    S.drag = {type:'marquee', aSec:clamp(tSec,0,S.totalDur), bSec:clamp(tSec,0,S.totalDur)};
+    return;
+  }
+
+  const sh = segHandleHit(x,y,S._plotH);
+  if(sh){ pushUndo(); S.drag={type:'segHandle', seg:sh.seg, edge:sh.edge}; return; }
+  const rh = rangeHandleHit(x,y);
+  if(rh){ pushUndo(); const lbl = rh.edge==='start'? S.labels.find(l=>l.id===rh.range.startLabelId) : S.labels.find(l=>l.id===rh.range.endLabelId); S.drag={type:'rangeHandle', label:lbl}; return; }
+
+  const ptTag = hitPointTag(x,y);
+  if(ptTag){ selectItem('label', ptTag.id); S.drag={type:'dragLabel', label:ptTag, moved:false}; return; }
+
+  const seg = hitSegment(x,y);
+  if(seg){ selectItem('segment', seg.id); return; }
+
+  const rngHit = (()=>{ const laneY=PAD.t+S._plotH-16; if(Math.abs(y-laneY)>7) return null;
+    return buildRanges().find(r=>{ const x0=S._mapX(r.startSec), x1=S._mapX(r.endSec); return x>=x0&&x<=x1; }); })();
+  if(rngHit){ selectItem('range', rngHit.id); return; }
+
+  if(S.multi.segIds.size || S.multi.labelIds.size) clearMulti();
+  S.drag = {type:'pan', startX:x, viewStart:S.view.start, viewEnd:S.view.end};
+});
+
+window.addEventListener('mousemove', (e)=>{
+  if(!S.loaded || !S.drag){
+    if(S.loaded) hoverTip(e);
+    return;
+  }
+  const rect = wrap.getBoundingClientRect();
+  const x = e.clientX-rect.left, y = e.clientY-rect.top;
+  const tSec = clamp(S._vs + (x-PAD.l)/S._plotW*(S._ve-S._vs), 0, S.totalDur);
+
+  if(S.drag.type==='pan'){
+    const dx = x-S.drag.startX;
+    const span = S.drag.viewEnd-S.drag.viewStart;
+    const dt = -dx/S._plotW*span;
+    setView(S.drag.viewStart+dt, S.drag.viewEnd+dt);
+  } else if(S.drag.type==='segHandle'){
+    const seg=S.drag.seg;
+    if(S.drag.edge==='start'){ const newStart=Math.min(tSec, seg.startSec+seg.durSec-0.01); seg.durSec += (seg.startSec-newStart); seg.startSec=newStart; }
+    else { seg.durSec = Math.max(0.01, tSec-seg.startSec); }
+    seg.edited=true; requestDraw();
+  } else if(S.drag.type==='rangeHandle'){
+    S.drag.label.tSec = tSec; S.drag.label.edited=true; requestDraw();
+  } else if(S.drag.type==='dragLabel'){
+    S.drag.label.tSec = tSec; S.drag.label.edited=true; S.drag.moved=true; requestDraw();
+  } else if(S.drag.type==='newSegment'){
+    S.drag.bSec = tSec; requestDraw();
+  } else if(S.drag.type==='marquee'){
+    S.drag.bSec = tSec; requestDraw();
+  }
+});
+
+window.addEventListener('mouseup', ()=>{
+  if(!S.drag) return;
+  if(S.drag.type==='segHandle'){ recomputeSegmentStats(S.drag.seg); renderInspector(); renderTree(); }
+  else if(S.drag.type==='dragLabel'){ if(S.drag.moved) pushUndo(); }
+  else if(S.drag.type==='newSegment'){
+    const a=Math.min(S.drag.aSec,S.drag.bSec), b=Math.max(S.drag.aSec,S.drag.bSec);
+    if(b-a>0.02){
+      pushUndo();
+      const seg = {id:uid(), schemaVersion:1, startSec:a, durSec:b-a, peakM:0, rmsM:0, speedMps:NaN, epochMs:Date.now(), origStartNs:null, edited:false, isNew:true};
+      recomputeSegmentStats(seg);
+      S.segments.push(seg);
+      selectItem('segment', seg.id);
+    }
+    S.addMode=null; updateAddHint();
+  }
+  else if(S.drag.type==='marquee'){
+    selectAllInRange(S.drag.aSec, S.drag.bSec);
+  }
+  S.drag=null;
+  renderAll();
+});
+
+/* ---- multiselect ---- */
+
+function clearMulti(){ S.multi={segIds:new Set(), labelIds:new Set()}; renderTree(); renderInspector(); requestDraw(); if(map) drawMapSegmentMarkers(); }
+function toggleMultiSegment(id){
+  if(S.multi.segIds.has(id)) S.multi.segIds.delete(id); else S.multi.segIds.add(id);
+  S.selection={type:null,id:null};
+  renderTree(); renderInspector(); requestDraw(); if(map) drawMapSegmentMarkers();
+}
+function toggleMultiLabel(id){
+  if(S.multi.labelIds.has(id)) S.multi.labelIds.delete(id); else S.multi.labelIds.add(id);
+  S.selection={type:null,id:null};
+  renderTree(); renderInspector(); requestDraw(); if(map) drawMapSegmentMarkers();
+}
+function selectAllInRange(aSec,bSec){
+  const a=Math.min(aSec,bSec), b=Math.max(aSec,bSec);
+  S.segments.forEach(seg=>{ const segEnd=seg.startSec+seg.durSec; if(segEnd>=a && seg.startSec<=b) S.multi.segIds.add(seg.id); });
+  S.labels.forEach(l=>{ if(l.kind==='POINT' && l.tSec>=a && l.tSec<=b) S.multi.labelIds.add(l.id); });
+  S.selection={type:null,id:null};
+}
+function selectAllVisible(){
+  clearMulti();
+  selectAllInRange(S.view.start, S.view.end);
+  renderTree(); renderInspector(); requestDraw(); if(map) drawMapSegmentMarkers();
+  const n = S.multi.segIds.size+S.multi.labelIds.size;
+  toast(n? `Selected ${S.multi.segIds.size} segment(s) and ${S.multi.labelIds.size} tag(s) in view.` : 'Nothing in the current view to select.');
+}
+function selectAllUnmatched(){
+  clearMulti();
+  S.labels.forEach(l=>{ if(l.segmentId==null) S.multi.labelIds.add(l.id); });
+  S.selection={type:null,id:null};
+  renderTree(); renderInspector(); requestDraw(); if(map) drawMapSegmentMarkers();
+  toast(S.multi.labelIds.size? `Selected ${S.multi.labelIds.size} unmatched tag(s).` : 'No unmatched tags.');
+}
+
+function hoverTip(e){
+  const rect = wrap.getBoundingClientRect();
+  const x = e.clientX-rect.left, y = e.clientY-rect.top;
+  if(x<PAD.l || x>rect.width-PAD.r || y<PAD.t || y>rect.height-PAD.b){ tip.style.display='none'; return; }
+  const tSec = S._vs + (x-PAD.l)/S._plotW*(S._ve-S._vs);
+  const idx = lowerBound(S.sensor.tSec, tSec);
+  const series = channelSeries(S.channel);
+  const v = series[clamp(idx,0,S.sensor.n-1)];
+  let html = `<b>${fmtTime(tSec)}</b><br>${CHANNEL_META[S.channel].name}: ${fmtNum(v,3)} ${CHANNEL_META[S.channel].unit}`;
+  if(S.gps.n){
+    const gi = lowerBound(S.gps.tSec, tSec);
+    const g = S.gps;
+    const gidx = clamp(gi, 0, g.n-1);
+    if(isFinite(g.speed[gidx])) html += `<br>Speed: ${g.speed[gidx].toFixed(2)} m/s`;
+  }
+  tip.innerHTML = html;
+  tip.style.display='block';
+  tip.style.left = Math.min(x+14, rect.width-160)+'px';
+  tip.style.top = Math.max(y-10, 4)+'px';
+  updateMapCursor(tSec);
+}
+wave.addEventListener('mouseleave', ()=>{ tip.style.display='none'; });
+wave.addEventListener('wheel', (e)=>{
+  if(!S.loaded) return;
+  e.preventDefault();
+  const rect = wrap.getBoundingClientRect();
+  const x = e.clientX-rect.left;
+  const tAtCursor = S._vs + (x-PAD.l)/S._plotW*(S._ve-S._vs);
+  const factor = e.deltaY>0 ? 1.15 : 1/1.15;
+  let a = tAtCursor - (tAtCursor-S.view.start)*factor;
+  let b = tAtCursor + (S.view.end-tAtCursor)*factor;
+  const minSpan = 0.05;
+  if(b-a < minSpan){ const c=(a+b)/2; a=c-minSpan/2; b=c+minSpan/2; }
+  setView(a,b);
+}, {passive:false});
+wave.addEventListener('dblclick', ()=>{ if(S.loaded) setView(0,S.totalDur); });
+
+document.getElementById('btnZoomIn').addEventListener('click', ()=>{ const c=(S.view.start+S.view.end)/2, s=(S.view.end-S.view.start)*0.35; setView(c-s,c+s); });
+document.getElementById('btnZoomOut').addEventListener('click', ()=>{ const c=(S.view.start+S.view.end)/2, s=(S.view.end-S.view.start)*0.75; setView(c-s,c+s); });
+document.getElementById('btnZoomFit').addEventListener('click', ()=>{ setView(0,S.totalDur); });
+document.getElementById('btnSelectVisible').addEventListener('click', selectAllVisible);
+
+document.getElementById('channelSel').addEventListener('change', (e)=>{ S.channel=e.target.value; renderMetricPanel(); requestDraw(); });
+document.getElementById('chkRecompute').addEventListener('change', (e)=>{ S.showRecompute=e.target.checked; requestDraw(); scheduleAutosave(); });
+document.getElementById('chkSeg').addEventListener('change', (e)=>{ S.showSegments=e.target.checked; requestDraw(); });
+document.getElementById('chkTags').addEventListener('change', (e)=>{ S.showTags=e.target.checked; requestDraw(); });
+document.getElementById('chkSpeed').addEventListener('change', (e)=>{ S.showSpeed=e.target.checked; requestDraw(); scheduleAutosave(); });
+document.getElementById('speedUnit').addEventListener('change', (e)=>{ S.speedUnit=e.target.value; requestDraw(); scheduleAutosave(); });
+document.getElementById('chkCalibLine').addEventListener('change', (e)=>{ S.showCalibLine=e.target.checked; requestDraw(); scheduleAutosave(); });
+
+/* =========================================================================
+   DETECTION TUNABLES PANEL + non-destructive "what if" simulation (Part E)
+   ========================================================================= */
+
+const DETECTION_FIELD_DEFS = [
+  {key:'calibrationDurationMs', label:'Calibration duration', min:1000, max:30000, step:500, unit:'ms'},
+  {key:'stdFactor', label:'Std factor', min:0.5, max:8, step:0.1, unit:'\u00D7'},
+  {key:'floorStd', label:'Floor std', min:0.01, max:1, step:0.01, unit:''},
+  {key:'endQuietMs', label:'End-quiet', min:100, max:5000, step:50, unit:'ms'},
+  {key:'minSegmentDurationMs', label:'Min duration', min:0, max:1000, step:10, unit:'ms'},
+  {key:'turnYawThresholdRadS', label:'Turn yaw thresh', min:0.1, max:5, step:0.1, unit:'rad/s'}
+];
+
+function renderTunablesPanel(){
+  const panel = document.getElementById('tunablesPanel');
+  if(!S.loaded){ panel.style.display='none'; panel.innerHTML=''; return; }
+  const cfg = S.sessionConfig;
+  const cfgDefaults = detectionTunablesFromConfig(cfg);
+  const rows = DETECTION_FIELD_DEFS.map(f=>{
+    const cur = S.detectionTunables[f.key];
+    const differs = cfg && Math.abs(cur-cfgDefaults[f.key])>1e-9;
+    return `<div class="tune-field">
+      <span${differs?' class="tune-diff"':''}>${f.label}${differs?' *':''}</span>
+      <input type="range" min="${f.min}" max="${f.max}" step="${f.step}" value="${cur}" data-key="${f.key}" class="detRange">
+      <span class="tv" id="dtv_${f.key}">${cur}${f.unit}</span>
+    </div>`;
+  }).join('');
+  panel.innerHTML = `
+    <div class="sub-panel-desc">
+      ${cfg ? 'These mirror this session\u2019s recorded detector config (config.json).' : 'No config.json in this bundle -- using hardcoded defaults.'}
+      Toggle simulate to non-destructively re-run detection with the values below over this session\u2019s raw signal; the real segments.csv is never touched. Every field marked * differs from the recorded config.
+    </div>
+    <div class="sub-panel-row">${rows}</div>
+    <div class="sub-panel-row">
+      <label><input type="checkbox" id="chkSimulate" ${S.simulateOn?'checked':''}> Simulate with these tunables (shows as a dashed overlay)</label>
+      <button id="btnResetDetection">Reset to ${cfg?'session config':'defaults'}</button>
+      <div class="sim-summary" id="simSummary"></div>
+    </div>`;
+  panel.querySelectorAll('.detRange').forEach(inp=>{
+    inp.addEventListener('input', (e)=>{
+      const key=e.target.dataset.key;
+      S.detectionTunables[key]=Number(e.target.value);
+      document.getElementById('dtv_'+key).textContent = e.target.value+(DETECTION_FIELD_DEFS.find(f=>f.key===key).unit);
+      updateSimSummary();
+      requestDraw();
+    });
+    inp.addEventListener('change', ()=>{ renderTunablesPanel(); scheduleAutosave(); });
+  });
+  document.getElementById('chkSimulate').addEventListener('change', (e)=>{
+    S.simulateOn = e.target.checked;
+    updateSimSummary(); requestDraw(); scheduleAutosave();
+  });
+  document.getElementById('btnResetDetection').addEventListener('click', ()=>{
+    S.detectionTunables = detectionTunablesFromConfig(cfg);
+    renderTunablesPanel(); requestDraw(); scheduleAutosave();
+    toast('Detection tunables reset to '+(cfg?'session config':'defaults')+'.');
+  });
+  updateSimSummary();
+}
+function updateSimSummary(){
+  const el = document.getElementById('simSummary'); if(!el) return;
+  if(!S.simulateOn){ el.innerHTML=''; return; }
+  const sim = getSimSegments();
+  const realCount = S.segments.length, simCount = sim.segs.length;
+  const diff = simCount-realCount;
+  el.innerHTML = `Real segments: <b>${realCount}</b> &nbsp; Simulated: <b>${simCount}</b> &nbsp; `+
+    `<span style="color:${diff===0?'var(--good)':diff>0?'var(--warn)':'var(--accent)'}">(${diff>0?'+':''}${diff})</span>`;
+}
+document.getElementById('btnTunables').addEventListener('click', ()=>{
+  const panel = document.getElementById('tunablesPanel');
+  const showing = panel.style.display!=='none' && panel.style.display!=='';
+  document.getElementById('metricPanel').style.display='none';
+  panel.style.display = showing ? 'none' : 'flex';
+  document.getElementById('btnTunables').classList.toggle('active-toggle', !showing);
+});
+
+
+/* =========================================================================
+   METRIC TUNABLES PANEL (Part D) -- shown under the waveform header when a
+   "Standards & metrics" channel is selected.
+   ========================================================================= */
+
+function renderMetricPanel(){
+  const panel = document.getElementById('metricPanel');
+  const def = METRIC_DEFS[S.channel];
+  if(!S.loaded || !def){ panel.style.display='none'; panel.innerHTML=''; return; }
+  panel.style.display='flex';
+  const legend = def.band && COMFORT_BANDS[def.band]
+    ? '<div class="band-legend">'+COMFORT_BANDS[def.band].map(([lo,hi,color,label])=>`<span><i style="background:${color}"></i>${label}</span>`).join('')+'</div>'
+    : '';
+  let badge = '';
+  if(S.channel==='vdv'){
+    const baseVert = S.showRecompute ? ensureRecompute().vertical : S.sensor.vertical;
+    badge = `<div class="tune-field">Whole-session VDV: <span class="tv">${totalVDV(baseVert, S.sensor.tSec).toFixed(2)} m/s^1.75</span></div>`;
+  } else if(S.channel==='mtvv'){
+    const series = computeChannelSeries('mtvv');
+    let mx=0; for(let i=0;i<series.length;i++) if(series[i]>mx) mx=series[i];
+    badge = `<div class="tune-field">MTVV (session max): <span class="tv">${mx.toFixed(2)} m/s\u00B2</span></div>`;
+  }
+  panel.innerHTML = `
+    <div class="sub-panel-desc">${def.desc}</div>
+    <div class="sub-panel-row">
+      ${def.params.map(p=>`
+        <div class="tune-field">
+          <span>${p.label}</span>
+          <input type="range" min="${p.min}" max="${p.max}" step="${p.step}" value="${S.metricTunables[p.key]}" data-key="${p.key}" class="metricRange">
+          <span class="tv" id="tv_${p.key}">${S.metricTunables[p.key]}${p.unit}</span>
+        </div>`).join('')}
+      ${def.params.length ? `<button id="btnResetMetric">Reset</button>` : ''}
+      ${badge}
+    </div>
+    ${legend}`;
+  panel.querySelectorAll('.metricRange').forEach(inp=>{
+    inp.addEventListener('input', (e)=>{
+      const key=e.target.dataset.key;
+      S.metricTunables[key] = Number(e.target.value);
+      const p = def.params.find(x=>x.key===key);
+      document.getElementById('tv_'+key).textContent = S.metricTunables[key]+(p?p.unit:'');
+      requestDraw();
+    });
+    inp.addEventListener('change', scheduleAutosave);
+  });
+  const rb = document.getElementById('btnResetMetric');
+  if(rb) rb.onclick = ()=>{
+    def.params.forEach(p=>{ S.metricTunables[p.key]=DEFAULT_METRIC_TUNABLES[p.key]; });
+    renderMetricPanel(); requestDraw(); scheduleAutosave();
+  };
+}
+
+
+/* =========================================================================
+   MINIMAP
+   ========================================================================= */
+
+const mini = document.getElementById('miniCanvas');
+const mctx = mini.getContext('2d');
+
+function drawMinimap(){
+  const rect = document.getElementById('miniPane').getBoundingClientRect();
+  const W=rect.width, H=rect.height;
+  mctx.clearRect(0,0,W,H);
+  mctx.fillStyle='#0D1117'; mctx.fillRect(0,0,W,H);
+  if(!S.loaded) return;
+  const pad=8;
+  const plotW=W-pad*2, plotH=H-pad*2;
+  const sn=S.sensor;
+  // envelope per pixel column
+  const cols = Math.max(1, Math.floor(plotW));
+  const mins = new Float64Array(cols).fill(Infinity), maxs=new Float64Array(cols).fill(-Infinity);
+  const series = sn.vertical;
+  for(let i=0;i<sn.n;i++){
+    const t = sn.tSec[i]; const c = clamp(Math.floor((t/S.totalDur)*cols),0,cols-1);
+    const v = series[i]; if(!isFinite(v)) continue;
+    if(v<mins[c]) mins[c]=v; if(v>maxs[c]) maxs[c]=v;
+  }
+  let gmin=Infinity, gmax=-Infinity;
+  for(let c=0;c<cols;c++){ if(mins[c]<gmin) gmin=mins[c]; if(maxs[c]>gmax) gmax=maxs[c]; }
+  if(!isFinite(gmin)){ gmin=-1; gmax=1; }
+  const my = v => pad + (1-(v-gmin)/(gmax-gmin||1))*plotH;
+  mctx.strokeStyle='#3A4353'; mctx.fillStyle='rgba(79,195,247,0.25)';
+  for(let c=0;c<cols;c++){
+    if(!isFinite(mins[c])) continue;
+    const x = pad+c;
+    mctx.fillRect(x, my(maxs[c]), 1, Math.max(1, my(mins[c])-my(maxs[c])));
+  }
+  // segments strip
+  S.segments.forEach(seg=>{
+    const m = peakToMScale(seg.peakM); const col = severityColor(m);
+    const x0 = pad + (seg.startSec/S.totalDur)*plotW;
+    const x1 = pad + ((seg.startSec+seg.durSec)/S.totalDur)*plotW;
+    mctx.fillStyle=col; mctx.fillRect(x0, H-6, Math.max(1,x1-x0), 4);
+  });
+  // viewport window
+  const vx0 = pad + (S.view.start/S.totalDur)*plotW;
+  const vx1 = pad + (S.view.end/S.totalDur)*plotW;
+  mctx.fillStyle='rgba(79,195,247,0.12)'; mctx.fillRect(vx0,0,vx1-vx0,H);
+  mctx.strokeStyle='#4FC3F7'; mctx.lineWidth=1.5; mctx.strokeRect(vx0,1,Math.max(1,vx1-vx0),H-2);
+  S._miniPlotW=plotW; S._miniPad=pad;
+}
+
+let miniDrag=null;
+mini.addEventListener('mousedown',(e)=>{
+  if(!S.loaded) return;
+  const rect=mini.getBoundingClientRect(); const x=e.clientX-rect.left;
+  const vx0 = S._miniPad + (S.view.start/S.totalDur)*S._miniPlotW;
+  const vx1 = S._miniPad + (S.view.end/S.totalDur)*S._miniPlotW;
+  if(Math.abs(x-vx0)<6) miniDrag={mode:'left'};
+  else if(Math.abs(x-vx1)<6) miniDrag={mode:'right'};
+  else if(x>=vx0&&x<=vx1) miniDrag={mode:'move', startX:x, viewStart:S.view.start, viewEnd:S.view.end};
+  else { const t = (x-S._miniPad)/S._miniPlotW*S.totalDur; const span=S.view.end-S.view.start; setView(t-span/2,t+span/2); miniDrag={mode:'move', startX:x, viewStart:S.view.start, viewEnd:S.view.end}; }
+});
+window.addEventListener('mousemove',(e)=>{
+  if(!miniDrag || !S.loaded) return;
+  const rect=mini.getBoundingClientRect(); const x=e.clientX-rect.left;
+  const t = clamp((x-S._miniPad)/S._miniPlotW*S.totalDur, 0, S.totalDur);
+  if(miniDrag.mode==='left'){ setView(Math.min(t, S.view.end-0.05), S.view.end); }
+  else if(miniDrag.mode==='right'){ setView(S.view.start, Math.max(t, S.view.start+0.05)); }
+  else if(miniDrag.mode==='move'){
+    const dx = x-miniDrag.startX; const dt = dx/S._miniPlotW*S.totalDur;
+    setView(miniDrag.viewStart+dt, miniDrag.viewEnd+dt);
+  }
+});
+window.addEventListener('mouseup', ()=>{ miniDrag=null; });
+
+/* =========================================================================
+   MAP (Leaflet)
+   ========================================================================= */
+
+let map=null, trackLine=null, cursorMarker=null, segMarkers=[], tagMarkers=[];
+
+function initMap(){
+  const el = document.getElementById('mapEl');
+  const fallback = document.getElementById('mapFallback');
+  if(!S.gps.n){ el.style.display='none'; fallback.style.display='flex'; fallback.textContent='This session has no GPS data.'; return; }
+  if(typeof L === 'undefined'){ el.style.display='none'; fallback.style.display='flex'; fallback.textContent='Leaflet failed to load from CDN -- check your internet connection.'; return; }
+  el.style.display='block'; fallback.style.display='none';
+  if(map){ map.remove(); map=null; }
+  map = L.map(el, {attributionControl:false, zoomControl:true});
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19}).addTo(map);
+  const pts = [];
+  for(let i=0;i<S.gps.n;i++) pts.push([S.gps.lat[i], S.gps.lon[i]]);
+  trackLine = L.polyline(pts, {color:'#4FC3F7', weight:3, opacity:0.85}).addTo(map);
+  // Map -> waveform wiring: clicking anywhere on the track jumps the
+  // waveform (and the map cursor) to that point in time.
+  trackLine.on('click', (e)=>{
+    let best=0, bestD=Infinity;
+    for(let i=0;i<S.gps.n;i++){
+      const d = (S.gps.lat[i]-e.latlng.lat)**2 + (S.gps.lon[i]-e.latlng.lng)**2;
+      if(d<bestD){ bestD=d; best=i; }
+    }
+    focusOnTime(S.gps.tSec[best]);
+    updateMapCursor(S.gps.tSec[best]);
+  });
+  map.fitBounds(trackLine.getBounds(), {padding:[16,16]});
+  cursorMarker = L.circleMarker(pts[0], {radius:6, color:'#fff', weight:2, fillColor:'#4FC3F7', fillOpacity:1}).addTo(map);
+  drawMapSegmentMarkers();
+}
+function nearestGpsIdx(tSec){
+  if(!S.gps.n) return -1;
+  const i = lowerBound(S.gps.tSec, tSec);
+  return clamp(i, 0, S.gps.n-1);
+}
+function updateMapCursor(tSec){
+  if(!map || !cursorMarker) return;
+  const i = nearestGpsIdx(tSec);
+  if(i<0) return;
+  cursorMarker.setLatLng([S.gps.lat[i], S.gps.lon[i]]);
+}
+function drawMapSegmentMarkers(){
+  if(!map) return;
+  segMarkers.forEach(m=>map.removeLayer(m)); segMarkers=[];
+  tagMarkers.forEach(m=>map.removeLayer(m)); tagMarkers=[];
+  S.segments.forEach(seg=>{
+    const i = nearestGpsIdx(seg.startSec);
+    if(i<0) return;
+    const m = peakToMScale(seg.peakM);
+    const isSel = S.selection.type==='segment' && S.selection.id===seg.id;
+    const isMulti = S.multi.segIds.has(seg.id);
+    const marker = L.circleMarker([S.gps.lat[i], S.gps.lon[i]], {
+      radius: isSel?10:6, color: isMulti?'#fff':(isSel?'#fff':severityColor(m)),
+      weight: isSel||isMulti?3:2, fillColor:severityColor(m), fillOpacity:0.65
+    });
+    marker.on('click', ()=>{ selectItem('segment', seg.id); focusOn(seg); });
+    marker.addTo(map);
+    segMarkers.push(marker);
+  });
+  S.labels.filter(l=>l.kind==='POINT').forEach(l=>{
+    const i = nearestGpsIdx(l.tSec);
+    if(i<0) return;
+    const isSel = S.selection.type==='label' && S.selection.id===l.id;
+    const isMulti = S.multi.labelIds.has(l.id);
+    const marker = L.circleMarker([S.gps.lat[i], S.gps.lon[i]], {
+      radius: isSel?8:4, color: isMulti?'#fff':(isSel?'#fff':labelColor(l.label)),
+      weight: isSel||isMulti?3:1, fillColor:labelColor(l.label), fillOpacity:0.85
+    });
+    marker.on('click', ()=>{ selectItem('label', l.id); focusOnTime(l.tSec); });
+    marker.addTo(map);
+    tagMarkers.push(marker);
+  });
+}
+function syncMapToSelection(){
+  if(!map) return;
+  drawMapSegmentMarkers();
+  let t = null;
+  if(S.selection.type==='segment'){ const seg=S.segments.find(s=>s.id===S.selection.id); if(seg) t=seg.startSec; }
+  else if(S.selection.type==='label'){ const l=S.labels.find(x=>x.id===S.selection.id); if(l) t=l.tSec; }
+  else if(S.selection.type==='range'){ const r=buildRanges().find(x=>x.id===S.selection.id); if(r) t=(r.startSec+r.endSec)/2; }
+  if(t!=null){
+    const i = nearestGpsIdx(t);
+    if(i>=0){ map.panTo([S.gps.lat[i], S.gps.lon[i]]); updateMapCursor(t); }
+  }
+}
+
+
+/* =========================================================================
+   ADD TAG MODAL
+   ========================================================================= */
+
+const modalOverlay = document.getElementById('modalOverlay');
+let modalCtx = null;
+function openAddTagModal(kind, aSec, bSec){
+  S.addMode=null; updateAddHint();
+  modalCtx = {kind, aSec, bSec};
+  document.getElementById('modalTitle').textContent = kind==='point' ? 'Add point tag' : 'Add range tag';
+  document.getElementById('modalBody').innerHTML = `
+    <div class="mrow"><label>Label</label>
+      <select id="mLabel">${KNOWN_LABELS.filter(k=>kind==='point'?k!=='Rough stretch':true).map(k=>`<option value="${k}">${k}</option>`).join('')}<option value="__custom__">Custom\u2026</option></select>
+    </div>
+    <div class="mrow" id="mCustomRow" style="display:none;"><label>Custom text</label><input type="text" id="mCustom"></div>
+    <div class="mrow"><label>${kind==='point'?'Timestamp':'Range'}</label><div style="font-family:var(--font-mono);font-size:12px;color:var(--text-dim);">${kind==='point'?fmtTime(aSec):fmtTime(aSec)+' \u2013 '+fmtTime(bSec)}</div></div>`;
+  document.getElementById('mLabel').onchange=(e)=>{ document.getElementById('mCustomRow').style.display = e.target.value==='__custom__'?'':'none'; };
+  if(kind==='range') document.getElementById('mLabel').value='Rough stretch';
+  modalOverlay.style.display='flex';
+}
+document.getElementById('modalCancel').addEventListener('click', ()=>{ modalOverlay.style.display='none'; requestDraw(); });
+document.getElementById('modalOk').addEventListener('click', ()=>{
+  const sel = document.getElementById('mLabel').value;
+  const label = sel==='__custom__' ? (document.getElementById('mCustom').value.trim()||'Unlabeled') : sel;
+  pushUndo();
+  if(modalCtx.kind==='point'){
+    const l = {id:uid(), schemaVersion:1, tSec:modalCtx.aSec, kind:'POINT', rawSegStartNs:null, label, tapOffsetMs:0, epochMs:Date.now(), segmentId:null, edited:false, isNew:true};
+    const containing = S.segments.find(s=>modalCtx.aSec>=s.startSec && modalCtx.aSec<=s.startSec+s.durSec);
+    if(containing) l.segmentId = containing.id;
+    S.labels.push(l);
+    selectItem('label', l.id);
+  } else {
+    const st = {id:uid(), schemaVersion:1, tSec:modalCtx.aSec, kind:'RANGE_START', rawSegStartNs:null, label, tapOffsetMs:0, epochMs:Date.now(), segmentId:null, edited:false, isNew:true};
+    const en = {id:uid(), schemaVersion:1, tSec:modalCtx.bSec, kind:'RANGE_END', rawSegStartNs:null, label, tapOffsetMs:0, epochMs:Date.now(), segmentId:null, edited:false, isNew:true};
+    S.labels.push(st, en);
+    selectItem('range', st.id);
+  }
+  modalOverlay.style.display='none';
+  renderAll();
+});
+
+/* =========================================================================
+   ADD-MODE TOOLBAR
+   ========================================================================= */
+
+function updateAddHint(){
+  const hint = document.getElementById('addModeHint');
+  document.getElementById('btnAddPoint').classList.toggle('active-toggle', S.addMode==='point');
+  document.getElementById('btnAddRange').classList.toggle('active-toggle', S.addMode==='rangeStart'||S.addMode==='rangeEnd');
+  document.getElementById('btnAddSegment').classList.toggle('active-toggle', S.addMode==='segment');
+  if(S.addMode==='point'){ hint.textContent='Click the waveform to place a point tag \u00B7 Esc to cancel'; hint.style.display='block'; }
+  else if(S.addMode==='rangeStart'){ hint.textContent='Click the start of the range \u00B7 Esc to cancel'; hint.style.display='block'; }
+  else if(S.addMode==='rangeEnd'){ hint.textContent='Click the end of the range \u00B7 Esc to cancel'; hint.style.display='block'; }
+  else if(S.addMode==='segment'){ hint.textContent='Drag across the waveform to draw a segment \u00B7 Esc to cancel'; hint.style.display='block'; }
+  else hint.style.display='none';
+}
+document.getElementById('btnAddPoint').addEventListener('click', ()=>{ S.addMode = S.addMode==='point'?null:'point'; S.rangeStartSec=null; updateAddHint(); });
+document.getElementById('btnAddRange').addEventListener('click', ()=>{ S.addMode = (S.addMode==='rangeStart'||S.addMode==='rangeEnd')?null:'rangeStart'; S.rangeStartSec=null; updateAddHint(); });
+document.getElementById('btnAddSegment').addEventListener('click', ()=>{ S.addMode = S.addMode==='segment'?null:'segment'; updateAddHint(); });
+
+document.addEventListener('keydown',(e)=>{
+  const typing = document.activeElement && ['INPUT','SELECT','TEXTAREA'].includes(document.activeElement.tagName);
+  if(e.key==='Escape'){
+    S.addMode=null; S.rangeStartSec=null; updateAddHint();
+    modalOverlay.style.display='none';
+    document.getElementById('confirmOverlay').style.display='none';
+    if(S.multi.segIds.size || S.multi.labelIds.size) clearMulti();
+    requestDraw();
+    return;
+  }
+  if(typing) return;
+  if((e.ctrlKey||e.metaKey) && !e.shiftKey && e.key.toLowerCase()==='z'){ e.preventDefault(); doUndo(); return; }
+  if((e.ctrlKey||e.metaKey) && (e.shiftKey && e.key.toLowerCase()==='z' || e.key.toLowerCase()==='y')){ e.preventDefault(); doRedo(); return; }
+  if(e.key==='['){ e.preventDefault(); stepSegment(-1); return; }
+  if(e.key===']'){ e.preventDefault(); stepSegment(1); return; }
+  if((e.key==='Delete'||e.key==='Backspace')){
+    if(S.multi.segIds.size || S.multi.labelIds.size){ e.preventDefault(); const b=document.getElementById('bulkDelete'); if(b) b.click(); return; }
+    if(S.selection.type){
+      e.preventDefault();
+      if(S.selection.type==='segment'){ const b=document.getElementById('segDelete'); if(b) b.click(); }
+      else if(S.selection.type==='label'){ const b=document.getElementById('lblDelete'); if(b) b.click(); }
+      else if(S.selection.type==='range'){ const b=document.getElementById('rgDelete'); if(b) b.click(); }
+    }
+  }
+});
+
+function stepSegment(dir){
+  if(!S.loaded || !S.segments.length){ if(S.loaded) toast('No segments in this session.'); return; }
+  const sorted = S.segments.slice().sort((a,b)=>a.startSec-b.startSec);
+  let idx = sorted.findIndex(s=>s.id===S.selection.id);
+  if(idx===-1){
+    const center=(S.view.start+S.view.end)/2;
+    idx = sorted.reduce((best,s,i)=>Math.abs(s.startSec-center)<Math.abs(sorted[best].startSec-center)?i:best, 0);
+    idx -= dir; // so this key press lands on the nearest segment, not one past it
+  }
+  idx = clamp(idx+dir, 0, sorted.length-1);
+  selectItem('segment', sorted[idx].id);
+  focusOn(sorted[idx]);
+}
+document.getElementById('btnPrevItem').addEventListener('click', ()=>stepSegment(-1));
+document.getElementById('btnNextItem').addEventListener('click', ()=>stepSegment(1));
+
+/* =========================================================================
+   EXPORT
+   ========================================================================= */
+
+document.getElementById('btnExport').addEventListener('click', exportCleanBundle);
+
+async function exportCleanBundle(){
+  if(!S.loaded) return false;
+  if(S.reviewState!=='REVIEWED'){
+    if(!confirm(`This session is marked ${S.reviewState.replace('_',' ')}, not REVIEWED. Export anyway?`)) return false;
+  }
+  try{
+    const zip = new JSZip();
+    // sensor.csv is exported unchanged -- the Workbench never rewrites raw signal.
+    const sensorLines = ['schema_version,timestamp_sensor_ns,accel_x_ms2,accel_y_ms2,accel_z_ms2,gyro_x_rads,gyro_y_rads,gyro_z_rads,vertical_ms2,jerk_ms3,roll_std_dev'];
+    const sn = S.sensor;
+    for(let i=0;i<sn.n;i++){
+      sensorLines.push([1, Math.round(sn.tSec[i]*1e9+S.t0Ns),
+        sn.ax[i], sn.ay[i], sn.az[i],
+        isFinite(sn.gx[i])?sn.gx[i]:'', isFinite(sn.gy[i])?sn.gy[i]:'', isFinite(sn.gz[i])?sn.gz[i]:'',
+        sn.vertical[i].toFixed(3), isFinite(sn.jerk[i])?sn.jerk[i].toFixed(3):'', sn.rollStd[i].toFixed(3)].join(','));
+    }
+    const gpsLines = ['schema_version,timestamp_sensor_ns,latitude,longitude,speed_mps,accuracy_m'];
+    const gp = S.gps;
+    for(let i=0;i<gp.n;i++){
+      gpsLines.push([1, Math.round(gp.tSec[i]*1e9+S.t0Ns), gp.lat[i], gp.lon[i], isFinite(gp.speed[i])?gp.speed[i].toFixed(3):'', isFinite(gp.acc[i])?gp.acc[i].toFixed(3):''].join(','));
+    }
+    const folder = zip.folder(S.sessionName+'_clean');
+    folder.file('sensor.csv', sensorLines.join('\n')+'\n');
+    folder.file('gps.csv', gpsLines.join('\n')+'\n');
+    folder.file('segments.csv', segmentsToCSV(S.segments, S.t0Ns));
+    folder.file('labels.csv', labelsToCSV(S.labels, S.segments, S.t0Ns));
+
+    const blob = await zip.generateAsync({type:'blob'});
+
+    // round-trip validation
+    let roundTripOk = false, rtDetail='';
+    try{
+      const reread = await JSZip.loadAsync(blob);
+      const base = S.sessionName+'_clean/';
+      const segCsv = await reread.file(base+'segments.csv').async('text');
+      const labCsv = await reread.file(base+'labels.csv').async('text');
+      const sensorCsv = await reread.file(base+'sensor.csv').async('text');
+      const segRows = segCsv.trim().split('\n').length-1;
+      const labRows = labCsv.trim().split('\n').length-1;
+      const sensorRows = sensorCsv.trim().split('\n').length-1;
+      roundTripOk = segRows===S.segments.length && labRows===S.labels.length && sensorRows===S.sensor.n;
+      rtDetail = `segments ${segRows}/${S.segments.length}, tags ${labRows}/${S.labels.length}, sensor ${sensorRows}/${S.sensor.n}`;
+    } catch(e){ rtDetail = e.message; }
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = S.sessionName+'_clean.zip';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url), 4000);
+
+    if(roundTripOk){ setReviewState('EXPORTED'); toast('Exported '+S.sessionName+'_clean.zip \u2014 round-trip verified ('+rtDetail+').', 'ok'); }
+    else toast('Exported, but round-trip check found a mismatch: '+rtDetail, 'err');
+    return roundTripOk;
+  } catch(err){
+    console.error(err);
+    toast('Export failed: '+err.message, 'err');
+    return false;
+  }
+}
+
+/* =========================================================================
+   FILE OPEN / DRAG-DROP
+   ========================================================================= */
+
+const fileInput = document.getElementById('fileInput');
+document.getElementById('btnOpen').addEventListener('click', ()=>fileInput.click());
+document.getElementById('btnOpen2').addEventListener('click', ()=>fileInput.click());
+fileInput.addEventListener('change', (e)=>{ if(e.target.files[0]) loadZip(e.target.files[0]); fileInput.value=''; });
+
+const dz = document.getElementById('dropzone');
+['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev, (e)=>{ e.preventDefault(); dz.classList.add('drag'); }));
+['dragleave','drop'].forEach(ev=>dz.addEventListener(ev, (e)=>{ e.preventDefault(); dz.classList.remove('drag'); }));
+dz.addEventListener('drop', (e)=>{ const f=e.dataTransfer.files[0]; if(f) loadZip(f); });
+document.body.addEventListener('dragover', (e)=>e.preventDefault());
+document.body.addEventListener('drop', (e)=>{ e.preventDefault(); if(!S.loaded && e.dataTransfer.files[0]) loadZip(e.dataTransfer.files[0]); });
+
+/* =========================================================================
+   RENDER ALL
+   ========================================================================= */
+
+function renderAll(){
+  renderTree();
+  renderInspector();
+  requestDraw();
+  drawMinimap();
+  drawMapSegmentMarkers();
+  scheduleAutosave();
+}
+
+/* =========================================================================
+   PERSISTENCE (IndexedDB) -- autosave the active session so a page reload
+   or an accidental tab close never loses edits. Two stores: SESSION_META is
+   small and cheap to list (for the "Recent sessions" picker), SESSION_DATA
+   holds the full typed-array payload and is only read when a session is
+   actually opened.
+   ========================================================================= */
+
+const DB_NAME='aitken_workbench', DB_VERSION=1;
+const STORE_DATA='sessionData', STORE_META='sessionMeta';
+let dbPromise=null;
+function openDb(){
+  if(dbPromise) return dbPromise;
+  dbPromise = new Promise((resolve,reject)=>{
+    if(typeof indexedDB==='undefined'){ reject(new Error('IndexedDB unavailable')); return; }
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = ()=>{
+      const db = req.result;
+      if(!db.objectStoreNames.contains(STORE_DATA)) db.createObjectStore(STORE_DATA);
+      if(!db.objectStoreNames.contains(STORE_META)) db.createObjectStore(STORE_META);
+    };
+    req.onsuccess = ()=>resolve(req.result);
+    req.onerror = ()=>reject(req.error);
+  });
+  return dbPromise;
+}
+function txDone(tx){ return new Promise((res,rej)=>{ tx.oncomplete=()=>res(); tx.onerror=()=>rej(tx.error); tx.onabort=()=>rej(tx.error); }); }
+function reqDone(req){ return new Promise((res,rej)=>{ req.onsuccess=()=>res(req.result); req.onerror=()=>rej(req.error); }); }
+
+function sessionSnapshotForSave(){
+  return {
+    sessionName:S.sessionName, t0Ns:S.t0Ns, totalDur:S.totalDur,
+    sensor:S.sensor, gps:S.gps, segments:S.segments, labels:S.labels,
+    warnings:S.warnings, reviewState:S.reviewState, view:S.view, channel:S.channel,
+    sessionConfig:S.sessionConfig, detectionTunables:S.detectionTunables,
+    metricTunables:S.metricTunables, simulateOn:S.simulateOn,
+    showSpeed:S.showSpeed, speedUnit:S.speedUnit, showCalibLine:S.showCalibLine
+  };
+}
+function metaFor(snapshot){
+  const unmatched = snapshot.labels.filter(l=>l.segmentId==null).length;
+  return {
+    name:snapshot.sessionName, totalDur:snapshot.totalDur,
+    segCount:snapshot.segments.length, tagCount:snapshot.labels.length,
+    unmatched, reviewState:snapshot.reviewState, savedAt:Date.now()
+  };
+}
+async function saveSessionToDb(){
+  if(!S.loaded) return;
+  try{
+    updateAutosaveTag('saving');
+    const db = await openDb();
+    const snap = sessionSnapshotForSave();
+    const tx = db.transaction([STORE_DATA,STORE_META],'readwrite');
+    tx.objectStore(STORE_DATA).put(snap, snap.sessionName);
+    tx.objectStore(STORE_META).put(metaFor(snap), snap.sessionName);
+    await txDone(tx);
+    updateAutosaveTag('saved');
+  } catch(e){
+    console.warn('autosave failed', e);
+    updateAutosaveTag('error');
+  }
+}
+let autosaveTimer=null;
+function scheduleAutosave(){
+  if(!S.loaded) return;
+  updateAutosaveTag('pending');
+  clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(saveSessionToDb, 600);
+}
+function updateAutosaveTag(state){
+  const el = document.getElementById('autosaveTag'); if(!el) return;
+  if(state==='pending') el.textContent='Saving\u2026';
+  else if(state==='saving') el.textContent='Saving\u2026';
+  else if(state==='saved') el.textContent='Saved locally \u00B7 '+new Date().toLocaleTimeString();
+  else if(state==='error') el.textContent='Autosave failed (storage unavailable)';
+  else el.textContent='';
+}
+async function listSessionMetas(){
+  try{
+    const db = await openDb();
+    const tx = db.transaction(STORE_META,'readonly');
+    const all = await reqDone(tx.objectStore(STORE_META).getAll());
+    return (all||[]).sort((a,b)=>b.savedAt-a.savedAt);
+  }catch(e){ return []; }
+}
+async function loadSessionData(name){
+  const db = await openDb();
+  const tx = db.transaction(STORE_DATA,'readonly');
+  return await reqDone(tx.objectStore(STORE_DATA).get(name));
+}
+async function deleteSessionFromDb(name){
+  try{
+    const db = await openDb();
+    const tx = db.transaction([STORE_DATA,STORE_META],'readwrite');
+    tx.objectStore(STORE_DATA).delete(name);
+    tx.objectStore(STORE_META).delete(name);
+    await txDone(tx);
+  }catch(e){ console.warn('delete failed', e); }
+}
+
+/* =========================================================================
+   RECENT SESSIONS UI
+   ========================================================================= */
+
+function fmtRelTime(ms){
+  const s = (Date.now()-ms)/1000;
+  if(s<60) return 'just now';
+  if(s<3600) return Math.round(s/60)+'m ago';
+  if(s<86400) return Math.round(s/3600)+'h ago';
+  return Math.round(s/86400)+'d ago';
+}
+function recentRowHtml(m){
+  return `<div class="recent-row" data-name="${m.name}">
+    <div class="rr-main">
+      <div class="rr-name">${m.name}</div>
+      <div class="rr-meta">${fmtTime(m.totalDur)} \u00B7 ${m.segCount} seg \u00B7 ${m.tagCount} tag${m.unmatched?' \u00B7 '+m.unmatched+' unmatched':''} \u00B7 ${fmtRelTime(m.savedAt)}</div>
+    </div>
+    <button class="rr-del" data-name="${m.name}" title="Delete from workbench">\u2715</button>
+  </div>`;
+}
+async function refreshRecentUI(){
+  const metas = await listSessionMetas();
+  const wrap = document.getElementById('recentWrap');
+  const list = document.getElementById('recentList');
+  if(metas.length){ wrap.style.display='block'; list.innerHTML = metas.map(recentRowHtml).join(''); }
+  else { wrap.style.display='none'; list.innerHTML=''; }
+  const dd = document.getElementById('recentDropdown');
+  dd.innerHTML = metas.length ? metas.map(recentRowHtml).join('') : '<div class="tree-empty" style="padding:10px 4px;">No saved sessions yet.</div>';
+}
+async function openRecentSession(name){
+  const data = await loadSessionData(name);
+  if(!data){ toast('That saved session could not be found.', 'err'); return; }
+  activateSession(data);
+  closeRecentDropdown();
+  toast('Resumed '+name+'.', 'ok');
+}
+function closeRecentDropdown(){ document.getElementById('recentDropdown').style.display='none'; }
+document.getElementById('btnRecent').addEventListener('click', async (e)=>{
+  e.stopPropagation();
+  const dd = document.getElementById('recentDropdown');
+  if(dd.style.display==='block'){ closeRecentDropdown(); return; }
+  await refreshRecentUI();
+  dd.style.display='block';
+});
+document.addEventListener('click', (e)=>{
+  const dd = document.getElementById('recentDropdown');
+  if(dd.style.display==='block' && !dd.contains(e.target) && e.target.id!=='btnRecent') closeRecentDropdown();
+});
+document.getElementById('recentDropdown').addEventListener('click', (e)=>{
+  const del = e.target.closest('.rr-del');
+  if(del){ e.stopPropagation(); deleteSessionFromDb(del.dataset.name).then(refreshRecentUI); return; }
+  const row = e.target.closest('.recent-row');
+  if(row) openRecentSession(row.dataset.name);
+});
+document.getElementById('recentList').addEventListener('click', (e)=>{
+  const del = e.target.closest('.rr-del');
+  if(del){ e.stopPropagation(); deleteSessionFromDb(del.dataset.name).then(refreshRecentUI); return; }
+  const row = e.target.closest('.recent-row');
+  if(row) openRecentSession(row.dataset.name);
+});
+
+/* =========================================================================
+   CLEAR WORKBENCH
+   ========================================================================= */
+
+function clearWorkbenchView(){
+  S.loaded=false;
+  S.selection={type:null,id:null};
+  S.multi={segIds:new Set(), labelIds:new Set()};
+  S.sensor=null; S.gps=null; S.segments=[]; S.labels=[]; S.warnings=[];
+  if(map){ map.remove(); map=null; }
+  document.getElementById('sessionName').textContent='No session loaded';
+  document.getElementById('dropzone').style.display='flex';
+  document.getElementById('waveContent').style.display='none';
+  document.getElementById('btnExport').disabled=true;
+  document.getElementById('btnClear').disabled=true;
+  document.getElementById('btnAddPoint').disabled=true;
+  document.getElementById('btnAddRange').disabled=true;
+  document.getElementById('btnAddSegment').disabled=true;
+  document.getElementById('btnPrevItem').disabled=true;
+  document.getElementById('btnNextItem').disabled=true;
+  updateAutosaveTag('');
+  setReviewState('UNREVIEWED');
+  S.reviewState='UNREVIEWED'; // setReviewState schedules an autosave we don't want post-clear
+  clearTimeout(autosaveTimer);
+  renderTree(); renderInspector();
+  refreshRecentUI();
+}
+function openConfirm(title, body, opts){
+  document.getElementById('confirmTitle').textContent=title;
+  document.getElementById('confirmBody').textContent=body;
+  document.getElementById('confirmOverlay').style.display='flex';
+  confirmCtx = opts;
+}
+let confirmCtx=null;
+document.getElementById('btnClear').addEventListener('click', ()=>{
+  if(!S.loaded) return;
+  openConfirm('Clear workbench', `Remove "${S.sessionName}" from the workbench view? It stays autosaved and reachable from Recent unless you discard it.`, {});
+});
+document.getElementById('confirmCancel').addEventListener('click', ()=>{ document.getElementById('confirmOverlay').style.display='none'; });
+document.getElementById('confirmExport').addEventListener('click', async ()=>{
+  document.getElementById('confirmOverlay').style.display='none';
+  const ok = await exportCleanBundle();
+  if(ok) clearWorkbenchView();
+  else toast('Export did not verify cleanly, so the workbench was left open -- check the export warning above before clearing.', 'err');
+});
+document.getElementById('confirmDiscard').addEventListener('click', async ()=>{
+  document.getElementById('confirmOverlay').style.display='none';
+  const name = S.sessionName;
+  clearWorkbenchView();
+  await deleteSessionFromDb(name);
+  await refreshRecentUI();
+  toast('Discarded '+name+'.', 'ok');
+});
+
+resizeCanvases();
+refreshRecentUI();
+(async ()=>{
+  const metas = await listSessionMetas();
+  if(metas.length){
+    const data = await loadSessionData(metas[0].name);
+    if(data){ activateSession(data); toast('Resumed '+data.sessionName+' from your last session.', 'ok'); }
+  }
+})();
+
+})();
+</script>
+</body>
+</html>
