@@ -1,0 +1,2 @@
+schema_version,timestamp_sensor_ns,latitude,longitude,speed_mps,accuracy_m
+1,0,18.520400,73.856700,,5.000

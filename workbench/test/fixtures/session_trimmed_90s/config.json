@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "calibrationDurationMs": 10000,
+  "stdFactor": 3.0,
+  "floorStd": 0.05,
+  "endQuietMs": 500,
+  "minSegmentDurationMs": 30,
+  "turnYawThresholdRadS": 1.0,
+  "mildSeverityDeviation": 3.0,
+  "moderateSeverityDeviation": 8.0,
+  "tagDebounceMs": 500,
+  "longSegmentWarningMs": 20000,
+  "calibratedShortStdThreshold": 3.64617,
+  "calibratedLongStdThreshold": 5.0351295
+}

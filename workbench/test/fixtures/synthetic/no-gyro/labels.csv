@@ -1,0 +1,2 @@
+schema_version,timestamp_sensor_ns,kind,segment_start_ns,label,tap_offset_ms,epoch_ms
+1,500000000,POINT,0,Pothole,500,1788000000500

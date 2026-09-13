@@ -1,0 +1,13 @@
+/* Plan §8.7. All motion is CSS/WAAPI on DOM elements, never a JS timer
+   (rule 0.7). Ticket 01 has no panels/dialogs/toasts to animate yet — this
+   file exists so later tickets add rules here rather than re-deciding where
+   motion rules live, and so the reduced-motion contract (--dur-* → 0ms in
+   tokens.css) already has a home to apply to. */
+
+.top-bar,
+.library__placeholder {
+  transition:
+    background-color var(--dur-2) var(--ease-out),
+    border-color var(--dur-2) var(--ease-out),
+    color var(--dur-2) var(--ease-out);
+}

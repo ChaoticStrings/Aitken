@@ -1,0 +1,68 @@
+name: Workbench CI
+
+on:
+  push:
+    paths:
+      - 'workbench/**'
+      - '.github/workflows/workbench-ci.yml'
+  pull_request:
+    paths:
+      - 'workbench/**'
+      - '.github/workflows/workbench-ci.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workbench-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: workbench
+
+jobs:
+  build:
+    name: Typecheck, test, build, e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: workbench/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit + integration tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E tests
+        run: npm run test:e2e
+
+      - name: Upload dist artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workbench-dist
+          path: workbench/dist/index.html
+          if-no-files-found: error
+          retention-days: 14

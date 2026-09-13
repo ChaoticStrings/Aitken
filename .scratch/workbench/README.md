@@ -5,7 +5,8 @@ Local-markdown tracker. Source of truth for *what* and *how*:
 here is a tracer-bullet vertical slice, numbered in dependency order (blockers
 first), sized for one fresh context window.
 
-**Frontier now:** 01.
+**Frontier now:** 02 (ticket 01 done — see
+`Documentation/Progress Docs/WORKBENCH_TICKET_01_VERIFICATION.md`).
 After 02 lands: 03, 04, 05 are all unblocked and independent.
 
 **Working a ticket**

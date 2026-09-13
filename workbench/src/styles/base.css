@@ -1,0 +1,69 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg-0);
+  color: var(--fg-0);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+}
+
+.top-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 44px;
+  min-height: 44px;
+  padding: 0 12px;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--line-0);
+  box-shadow: var(--shadow-1);
+}
+
+.top-bar__name {
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.workspace {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.library {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-2);
+}
+
+.library__placeholder {
+  border: 1px dashed var(--line-1);
+  border-radius: var(--radius-2);
+  padding: 32px 48px;
+  text-align: center;
+}
+
+.library__placeholder h2 {
+  margin: 0 0 8px;
+  color: var(--fg-1);
+  font-size: 16px;
+}
