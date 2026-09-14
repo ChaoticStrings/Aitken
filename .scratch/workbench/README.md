@@ -5,9 +5,12 @@ Local-markdown tracker. Source of truth for *what* and *how*:
 here is a tracer-bullet vertical slice, numbered in dependency order (blockers
 first), sized for one fresh context window.
 
-**Frontier now:** 02 (ticket 01 done — see
-`Documentation/Progress Docs/WORKBENCH_TICKET_01_VERIFICATION.md`).
-After 02 lands: 03, 04, 05 are all unblocked and independent.
+**Frontier now:** 03, 04, or 05 — all unblocked and independent now that 02
+is done (see `Documentation/Progress Docs/WORKBENCH_TICKET_02_VERIFICATION.md`).
+03 (detector/recompute) is the highest-risk of the three and the one most of
+the later tickets ultimately sit behind — worth doing before 04/05 rather
+than purely by number order, but nothing blocks starting with 04 or 05
+first if that's preferred.
 
 **Working a ticket**
 1. Read the ticket, then the plan sections it points at (`Plan §…`).

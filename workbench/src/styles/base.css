@@ -50,20 +50,162 @@ body {
 .library {
   flex: 1;
   display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 16px;
+  gap: 12px;
+}
+
+.library__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.library__toolbar button {
+  background: var(--bg-2);
+  color: var(--fg-0);
+  border: 1px solid var(--line-1);
+  border-radius: var(--radius-1);
+  padding: 6px 12px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.library__toolbar button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.library__storage {
+  margin-left: auto;
+  color: var(--fg-2);
+  font-size: 12px;
+}
+
+.library__banner {
+  background: color-mix(in srgb, var(--warn) 20%, var(--bg-1));
+  border: 1px solid var(--warn);
+  border-radius: var(--radius-1);
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.library__dropzone {
+  flex: 1;
+  display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--fg-2);
+  min-height: 0;
+  border: 1px dashed var(--line-1);
+  border-radius: var(--radius-2);
+  overflow-y: auto;
+}
+
+.library__dropzone--active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
 .library__placeholder {
-  border: 1px dashed var(--line-1);
-  border-radius: var(--radius-2);
   padding: 32px 48px;
   text-align: center;
+  color: var(--fg-2);
 }
 
 .library__placeholder h2 {
   margin: 0 0 8px;
   color: var(--fg-1);
   font-size: 16px;
+}
+
+.library__cards {
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.library-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg-1);
+  border: 1px solid var(--line-0);
+  border-radius: var(--radius-2);
+  padding: 10px 12px;
+}
+
+.library-card__main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.library-card__name {
+  color: var(--fg-0);
+  font-weight: 600;
+}
+
+.library-card__meta {
+  color: var(--fg-2);
+  font-size: 12px;
+}
+
+.library-card__warnings {
+  color: var(--warn);
+  font-size: 12px;
+}
+
+.library-card__badge {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg-3);
+  color: var(--fg-1);
+  white-space: nowrap;
+}
+
+.library-card__delete {
+  background: transparent;
+  color: var(--danger);
+  border: 1px solid var(--line-1);
+  border-radius: var(--radius-1);
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.toast-host {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 100;
+}
+
+.toast {
+  background: var(--bg-2);
+  color: var(--fg-0);
+  border: 1px solid var(--line-1);
+  border-radius: var(--radius-1);
+  padding: 8px 14px;
+  box-shadow: var(--shadow-2);
+  font-size: 13px;
+  max-width: 360px;
+}
+
+.toast--error {
+  border-color: var(--danger);
+  color: var(--danger);
 }

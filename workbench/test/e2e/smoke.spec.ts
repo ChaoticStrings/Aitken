@@ -16,17 +16,29 @@ test.beforeAll(() => {
 test('build produces single html and no network requests on file:// open', async ({ page }) => {
   const requests: string[] = [];
   page.on('request', (req) => requests.push(req.url()));
+  const pageErrors: string[] = [];
+  page.on('pageerror', (err) => pageErrors.push(err.message));
 
   await page.goto(distIndexUrl);
+  // Regression guard: a script hoisted into <head> that runs before
+  // <div id="app"> exists fails *silently* (a defensive `if (root)` check
+  // swallows it) rather than throwing — so the real check is that the app
+  // actually rendered, not just that nothing threw. (This is what caught
+  // the ticket 01 blank-page bug in the first place.)
   await expect(page.locator('.top-bar__name')).toHaveText('Aitken Workbench');
+  expect(pageErrors).toEqual([]);
 
   // The file:// document navigation itself is one "request" in Playwright's
-  // eyes — that's expected and is not a network request. What "exactly one
-  // file" actually rules out is any *additional* request: no separately
-  // fetched CSS, font, JS, or worker asset, and definitely nothing over
-  // http(s).
-  const others = requests.filter((url) => url !== distIndexUrl);
-  expect(others).toEqual([]);
+  // eyes — expected, not a network request. A `blob:` request is also
+  // expected now that RealWorkerBridge exists: constructing the inlined
+  // worker via `URL.createObjectURL()` (the trick that keeps the build to
+  // one file — see vite.config.ts) fires a "request" event for purely
+  // in-memory bytes, with zero actual network or disk I/O. What "exactly
+  // one file" actually rules out is anything that leaves the page: no
+  // separately fetched CSS, font, or JS asset, and definitely nothing over
+  // http(s) or a second file:// path.
+  const unexpected = requests.filter((url) => url !== distIndexUrl && !url.startsWith('blob:') && !url.startsWith('data:'));
+  expect(unexpected).toEqual([]);
   expect(requests.some((url) => url.startsWith('http'))).toBe(false);
 });
 
