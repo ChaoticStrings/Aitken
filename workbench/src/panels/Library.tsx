@@ -198,6 +198,13 @@ export function Library() {
                   {entry.warnings.length > 0 && (
                     <span class="library-card__warnings">{entry.warnings.length} warning(s) on import</span>
                   )}
+                  {entry.detectorCheck && (
+                    <span class="library-card__detector">
+                      Detector check: simulated {entry.detectorCheck.simulatedCount} / recorded {entry.detectorCheck.recordedCount} ·{' '}
+                      {entry.detectorCheck.divergentCount} divergent
+                      {entry.detectorCheck.calibrationIncomplete ? ' — session shorter than the calibration window' : ''}
+                    </span>
+                  )}
                 </div>
                 <span class={`library-card__badge library-card__badge--${entry.reviewState.toLowerCase()}`}>
                   {entry.reviewState}

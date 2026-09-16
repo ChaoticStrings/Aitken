@@ -44,6 +44,39 @@ describe('LibraryStore (InlineWorkerBridge + MemoryPersistence)', () => {
     expect(all).toHaveLength(1);
   });
 
+  it('ticket 03: runs and caches the detector check on import, and it survives a listEntries round-trip', async () => {
+    const store = new LibraryStore(new MemoryPersistence(), new InlineWorkerBridge());
+    const { entry } = await store.importFromSource(new FilesBundleSource(realFixtureAsFiles()));
+    expect(entry.detectorCheck).toEqual({
+      simulatedCount: 8,
+      recordedCount: 8,
+      divergentCount: 0,
+      calibrationIncomplete: false,
+    });
+    // Not just returned from import — actually cached (§6.5 `derived`
+    // store) and re-attached by `listEntries`, not recomputed from scratch.
+    const [listed] = await store.listEntries();
+    expect(listed?.detectorCheck).toEqual(entry.detectorCheck);
+  });
+
+  it('ticket 03: a session shorter than the calibration window shows calibrationIncomplete with zero simulated segments', async () => {
+    const store = new LibraryStore(new MemoryPersistence(), new InlineWorkerBridge());
+    const files = loadFixtureFiles('synthetic/no-gyro'); // ~2s of data; calibrationDurationMs is 10000
+    const asFiles = Array.from(files, ([name, text]) => new File([text], name));
+    const { entry } = await store.importFromSource(new FilesBundleSource(asFiles));
+    expect(entry.detectorCheck).toEqual({
+      simulatedCount: 0,
+      recordedCount: 1, // this fixture's segments.csv has one recorded row
+      // This synthetic fixture's accel columns and its one recorded
+      // segments.csv row weren't crafted to be physically consistent with
+      // each other (unlike the real trimmed-90s fixture) — recomputed peak
+      // (~0.083) genuinely diverges from the recorded 1.5, which is
+      // correct behaviour to demo here, not a bug.
+      divergentCount: 1,
+      calibrationIncomplete: true,
+    });
+  });
+
   it('zip and loose-folder import of the same session produce the same hash and one card (AC8 demo)', async () => {
     const store = new LibraryStore(new MemoryPersistence(), new InlineWorkerBridge());
 
@@ -137,6 +170,21 @@ describe('IdbPersistence (fake-indexeddb)', () => {
     await persistence.deleteBundle('x');
     expect(await persistence.getBundle('x')).toBeNull();
     expect(await persistence.getJournal('x')).toBeNull();
+  });
+
+  it('ticket 03: saveDerived/getDerived round-trip, and deleteBundle also clears the derived row', async () => {
+    const persistence = await IdbPersistence.open(freshDbName());
+    const detectorCheck = { simulatedCount: 8, recordedCount: 8, divergentCount: 0, calibrationIncomplete: false };
+    await persistence.saveDerived({ hash: 'd1', detectorCheck, computedAt: 123 });
+    expect(await persistence.getDerived('d1')).toEqual({ hash: 'd1', detectorCheck, computedAt: 123 });
+    expect(await persistence.getDerived('missing')).toBeNull();
+
+    await persistence.saveImportedBundle(
+      { hash: 'd1', sessionName: 'd1', files: new Map(), importedAt: 1, sizeBytes: 0, summary: { segments: 0, tags: 0, warnings: [], durationSec: 0, firstEpochMs: null } },
+      { hash: 'd1', entries: [], cursor: 0, updatedAt: 1 },
+    );
+    await persistence.deleteBundle('d1');
+    expect(await persistence.getDerived('d1')).toBeNull();
   });
 });
 

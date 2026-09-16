@@ -1,12 +1,12 @@
 // Plan §6.5 lists five IndexedDB stores (`bundles`, `journals`, `layouts`,
-// `settings`, `derived`), but ticket 02 only produces and consumes the
-// first two — `layouts` (ticket 14), `settings` (whichever ticket first
-// reads Settings, §6.6) and `derived` (ticket 03's recompute/LOD cache)
-// don't have a reader or writer yet. Adding stores/methods for them now
-// would be exactly rule 0.5's "no speculative abstraction"; they're added
-// to this interface (and the IDB schema, via a version bump) when their
-// ticket lands.
+// `settings`, `derived`). Ticket 02 added the first two; ticket 03 adds
+// `derived`, scoped to what it actually produces — the detector-check
+// summary (§7.8's Library card line), not the full `lod`/`recomputed`
+// arrays §6.5 also lists there, which stay unbuilt until ticket 04 needs
+// them (rule 0.5). `layouts` (ticket 14) and `settings` (whichever ticket
+// first reads Settings, §6.6) still don't have a reader or writer.
 import type { ImportWarning } from '../worker/parse';
+import type { DetectorCheckSummary } from '../worker/index';
 
 export interface StoredBundle {
   hash: string;
@@ -47,6 +47,17 @@ export interface StorageEstimate {
   quotaBytes: number;
 }
 
+/** §6.5's `derived` store row, scoped to ticket 03's detector check —
+ * "evictable; rebuilt if absent" (§6.5): a missing row (a bundle imported
+ * before this ticket existed) isn't an error, it just means the Library
+ * card has nothing to show on that line yet, rather than triggering an
+ * eager re-parse of every card on every Library mount. */
+export interface StoredDerived {
+  hash: string;
+  detectorCheck: DetectorCheckSummary;
+  computedAt: number;
+}
+
 export interface Persistence {
   /** Writes `bundles[hash]` and an empty `journals[hash]` in one
    * transaction (AC5) — a bundle without a journal record, or vice versa,
@@ -55,7 +66,9 @@ export interface Persistence {
   getBundle(hash: string): Promise<StoredBundle | null>;
   listBundles(): Promise<StoredBundle[]>;
   getJournal(hash: string): Promise<StoredJournal | null>;
-  /** Deletes both the bundle and its journal. */
+  /** Deletes the bundle, its journal, and any cached `derived` row. */
   deleteBundle(hash: string): Promise<void>;
   estimateStorage(): Promise<StorageEstimate | null>; // null when the browser can't report it
+  getDerived(hash: string): Promise<StoredDerived | null>;
+  saveDerived(derived: StoredDerived): Promise<void>;
 }

@@ -163,6 +163,11 @@ body {
   font-size: 12px;
 }
 
+.library-card__detector {
+  color: var(--fg-2);
+  font-size: 12px;
+}
+
 .library-card__badge {
   font-size: 11px;
   text-transform: uppercase;

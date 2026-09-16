@@ -1,4 +1,4 @@
-import type { Persistence, StoredBundle, StoredJournal, StorageEstimate } from './Persistence';
+import type { Persistence, StoredBundle, StoredJournal, StorageEstimate, StoredDerived } from './Persistence';
 
 /** Test adapter (§4.2) and the runtime fallback when IndexedDB throws on
  * first use — Safari private browsing exposes `indexedDB` but throws from
@@ -8,6 +8,7 @@ import type { Persistence, StoredBundle, StoredJournal, StorageEstimate } from '
 export class MemoryPersistence implements Persistence {
   private bundles = new Map<string, StoredBundle>();
   private journals = new Map<string, StoredJournal>();
+  private derived = new Map<string, StoredDerived>();
 
   async saveImportedBundle(bundle: StoredBundle, journal: StoredJournal): Promise<void> {
     this.bundles.set(bundle.hash, bundle);
@@ -29,6 +30,15 @@ export class MemoryPersistence implements Persistence {
   async deleteBundle(hash: string): Promise<void> {
     this.bundles.delete(hash);
     this.journals.delete(hash);
+    this.derived.delete(hash);
+  }
+
+  async getDerived(hash: string): Promise<StoredDerived | null> {
+    return this.derived.get(hash) ?? null;
+  }
+
+  async saveDerived(derived: StoredDerived): Promise<void> {
+    this.derived.set(derived.hash, derived);
   }
 
   async estimateStorage(): Promise<StorageEstimate | null> {

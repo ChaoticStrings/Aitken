@@ -29,6 +29,14 @@ test('imports the real trimmed session via the file input and shows a card', asy
   await expect(card).toContainText('8 segments');
   await expect(card).toContainText('3 tags');
   await expect(page.locator('.toast')).toContainText('Imported');
+
+  // Ticket 03's detector-check line, round-tripped through the *real*
+  // Worker's postMessage protocol (`detectorCheck`/`detectorChecked`) —
+  // this file is the only place that boundary is exercised at all, so a
+  // structured-clone or field-name mismatch specific to that message type
+  // would only show up here, never in the InlineWorkerBridge-backed
+  // integration tests.
+  await expect(card).toContainText('Detector check: simulated 8 / recorded 8 · 0 divergent');
 });
 
 test('re-importing the same session opens the existing card instead of duplicating (E-15)', async ({ page }) => {

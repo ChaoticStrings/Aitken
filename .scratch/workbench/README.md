@@ -5,12 +5,11 @@ Local-markdown tracker. Source of truth for *what* and *how*:
 here is a tracer-bullet vertical slice, numbered in dependency order (blockers
 first), sized for one fresh context window.
 
-**Frontier now:** 03, 04, or 05 — all unblocked and independent now that 02
-is done (see `Documentation/Progress Docs/WORKBENCH_TICKET_02_VERIFICATION.md`).
-03 (detector/recompute) is the highest-risk of the three and the one most of
-the later tickets ultimately sit behind — worth doing before 04/05 rather
-than purely by number order, but nothing blocks starting with 04 or 05
-first if that's preferred.
+**Frontier now:** 04 or 05 — both unblocked now that 02 and 03 are done
+(see `Documentation/Progress Docs/WORKBENCH_TICKET_03_VERIFICATION.md`).
+Neither blocks the other; 12 (Simulation + Diff + Adopt) is the first
+ticket that will actually exercise 03's `runId`-cancellation path under a
+genuine concurrent race, so it's worth keeping in mind but isn't next.
 
 **Working a ticket**
 1. Read the ticket, then the plan sections it points at (`Plan §…`).

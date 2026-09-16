@@ -1,13 +1,14 @@
-import type { Persistence, StoredBundle, StoredJournal, StorageEstimate } from './Persistence';
+import type { Persistence, StoredBundle, StoredJournal, StorageEstimate, StoredDerived } from './Persistence';
 import { ImportError } from '../import/errors';
 
 const DB_NAME = 'aitken_workbench_v2';
-// Bumped whenever a store is added — today just `bundles`/`journals`
-// (ticket 02); `layouts`/`settings`/`derived` (§6.5) arrive with the
+// Bumped whenever a store is added — `bundles`/`journals` (ticket 02),
+// `derived` (ticket 03). `layouts`/`settings` (§6.5) arrive with the
 // tickets that actually read and write them.
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const BUNDLES_STORE = 'bundles';
 const JOURNALS_STORE = 'journals';
+const DERIVED_STORE = 'derived';
 
 function requestToPromise<T>(request: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -26,6 +27,9 @@ function openDb(dbName: string): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(JOURNALS_STORE)) {
         db.createObjectStore(JOURNALS_STORE, { keyPath: 'hash' });
+      }
+      if (!db.objectStoreNames.contains(DERIVED_STORE)) {
+        db.createObjectStore(DERIVED_STORE, { keyPath: 'hash' });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -90,9 +94,25 @@ export class IdbPersistence implements Persistence {
 
   deleteBundle(hash: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      const tx = this.db.transaction([BUNDLES_STORE, JOURNALS_STORE], 'readwrite');
+      const tx = this.db.transaction([BUNDLES_STORE, JOURNALS_STORE, DERIVED_STORE], 'readwrite');
       tx.objectStore(BUNDLES_STORE).delete(hash);
       tx.objectStore(JOURNALS_STORE).delete(hash);
+      tx.objectStore(DERIVED_STORE).delete(hash);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  async getDerived(hash: string): Promise<StoredDerived | null> {
+    const tx = this.db.transaction(DERIVED_STORE, 'readonly');
+    const result = await requestToPromise(tx.objectStore(DERIVED_STORE).get(hash));
+    return (result as StoredDerived | undefined) ?? null;
+  }
+
+  saveDerived(derived: StoredDerived): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction(DERIVED_STORE, 'readwrite');
+      tx.objectStore(DERIVED_STORE).put(derived);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });

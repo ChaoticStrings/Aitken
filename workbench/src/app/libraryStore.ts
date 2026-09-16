@@ -1,7 +1,8 @@
 import type { BundleSource } from '../import/BundleSource';
-import type { WorkerBridge, ProgressCallback } from '../bridge/WorkerBridge';
-import type { Persistence, StoredBundle } from '../persistence/Persistence';
+import type { WorkerBridge, ProgressCallback, DetectorCheckInput } from '../bridge/WorkerBridge';
+import type { Persistence, StoredBundle, StoredDerived } from '../persistence/Persistence';
 import type { ImportWarning } from '../worker/parse';
+import type { DetectorCheckSummary } from '../worker/index';
 
 export interface LibraryEntry {
   hash: string;
@@ -19,6 +20,12 @@ export interface LibraryEntry {
   // this needs revisiting.
   reviewState: 'UNREVIEWED';
   warnings: ImportWarning[];
+  /** Ticket 03's "Detector check" Library-card line — `null` when no
+   * `derived` row exists yet (a bundle imported before this ticket, per
+   * §6.5's "evictable; rebuilt if absent"; this ticket computes it once at
+   * import time and doesn't yet add a way to rebuild it later on demand —
+   * flagged in the verification note). */
+  detectorCheck: DetectorCheckSummary | null;
 }
 
 export interface ImportOutcome {
@@ -29,7 +36,7 @@ export interface ImportOutcome {
   alreadyImported: boolean;
 }
 
-function toEntry(bundle: StoredBundle): LibraryEntry {
+function toEntry(bundle: StoredBundle, derived: StoredDerived | null): LibraryEntry {
   return {
     hash: bundle.hash,
     sessionName: bundle.sessionName,
@@ -41,6 +48,7 @@ function toEntry(bundle: StoredBundle): LibraryEntry {
     dateMs: bundle.summary.firstEpochMs ?? bundle.importedAt,
     reviewState: 'UNREVIEWED',
     warnings: bundle.summary.warnings,
+    detectorCheck: derived?.detectorCheck ?? null,
   };
 }
 
@@ -48,6 +56,17 @@ function totalBytes(files: Map<string, Blob>): number {
   let total = 0;
   for (const blob of files.values()) total += blob.size;
   return total;
+}
+
+let runIdCounter = 0;
+/** A fresh id per detector-check call (E-40) — a plain incrementing
+ * counter is enough here since `LibraryStore` only ever has one detector
+ * check in flight per import, but the id itself is opaque to
+ * `WorkerBridge`, so this can become a richer id later without touching
+ * the bridge's contract. */
+function nextRunId(): string {
+  runIdCounter += 1;
+  return `detector-check-${runIdCounter}`;
 }
 
 export class LibraryStore {
@@ -62,7 +81,10 @@ export class LibraryStore {
     // journal is empty — so `importedAt` and "last edited" coincide; this
     // sort key should become the journal's `updatedAt` once ticket 05 makes
     // edits possible.
-    return bundles.sort((a, b) => b.importedAt - a.importedAt).map(toEntry);
+    const sorted = bundles.sort((a, b) => b.importedAt - a.importedAt);
+    return Promise.all(
+      sorted.map(async (bundle) => toEntry(bundle, await this.persistence.getDerived(bundle.hash))),
+    );
   }
 
   async importFromSource(source: BundleSource, onProgress?: ProgressCallback): Promise<ImportOutcome> {
@@ -70,7 +92,7 @@ export class LibraryStore {
 
     const existing = await this.persistence.getBundle(hash);
     if (existing) {
-      return { entry: toEntry(existing), alreadyImported: true };
+      return { entry: toEntry(existing, await this.persistence.getDerived(hash)), alreadyImported: true };
     }
 
     const session = await this.workerBridge.parseSession(files, onProgress);
@@ -92,7 +114,35 @@ export class LibraryStore {
     };
     await this.persistence.saveImportedBundle(bundle, { hash, entries: [], cursor: 0, updatedAt: importedAt });
 
-    return { entry: toEntry(bundle), alreadyImported: false };
+    // Ticket 03: run the detector check (§4.4's `recompute` step +
+    // calibrate/simulate/divergence) once, right after parse, while the
+    // full `ParsedSession` is already in hand — and cache it (§6.5's
+    // `derived` store) so future `listEntries()` calls don't re-run the
+    // worker. A failure here (a corrupt/edge-case session the detector
+    // can't calibrate against) shouldn't fail the whole import — the
+    // bundle is already saved and usable; the Library card just shows no
+    // detector-check line for it.
+    let derived: StoredDerived | null = null;
+    try {
+      const input: DetectorCheckInput = {
+        tNs: session.sensor.tNs,
+        vertical: session.sensor.vertical,
+        ax: session.sensor.ax,
+        ay: session.sensor.ay,
+        az: session.sensor.az,
+        gz: session.sensor.gz,
+        gyroCoverage: session.sensor.gyroCoverage,
+        segments: session.segments,
+        config: session.config,
+      };
+      const detectorCheck = await this.workerBridge.runDetectorCheck(input, nextRunId());
+      derived = { hash, detectorCheck, computedAt: Date.now() };
+      await this.persistence.saveDerived(derived);
+    } catch {
+      // Left as null; see comment above.
+    }
+
+    return { entry: toEntry(bundle, derived), alreadyImported: false };
   }
 
   async deleteEntry(hash: string): Promise<void> {
