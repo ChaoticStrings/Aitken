@@ -2,7 +2,11 @@ package com.aitken.recording
 
 import com.aitken.app.Tunables
 import com.aitken.location.GpsFix
+import com.aitken.segment.CalibrationResult
 import com.aitken.segment.ClosedSegment
+import com.aitken.segment.PatchTrigger
+import com.aitken.segment.RoughPatch
+import com.aitken.sensor.AccelerometerInfo
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -26,7 +30,13 @@ class SessionRecorderTest {
     private fun gpsFile(): File = File(tempFolder.root, "gps.csv")
     private fun segmentsFile(): File = File(tempFolder.root, "segments.csv")
     private fun labelsFile(): File = File(tempFolder.root, "labels.csv")
+    private fun patchesFile(): File = File(tempFolder.root, "patches.csv")
     private fun configFile(): File = File(tempFolder.root, "config.json")
+
+    private fun calibration(presetName: String? = null) = CalibrationResult(
+        mThreshold = 5.5f, dThreshold = 2.2f, meanPeak = 1.83f, maxRoughness = 1.47f,
+        peakCount = 40, cleanMs = 10_000L, elapsedMs = 12_000L, windowFilled = true, presetName = presetName
+    )
 
     @Test
     fun `writeSensorSample writes header and row with locale-safe fixed-point formatting`() {
@@ -118,33 +128,51 @@ class SessionRecorderTest {
     }
 
     @Test
-    fun `writeConfig records the active tunables and both calibrated thresholds, independent of the CSV flush cycle`() {
+    fun `writePatch writes a rough patch row to its own file`() {
         val recorder = SessionRecorder(tempFolder.root)
-
-        // Deliberately mirrors 125553's real numbers (ride-data-analysis-update.md
-        // §1/§4) -- the case that motivated this fix.
-        val tunables = Tunables(
-            calibrationDurationMs = 10_000L,
-            stdFactor = 1.5f,
-            floorStd = 0.05f,
-            endQuietMs = 500L,
-            minSegmentDurationMs = 30L,
-            turnYawThresholdRadS = 1.0f,
-            mildSeverityDeviation = 5f,
-            moderateSeverityDeviation = 15f,
-            tagDebounceMs = 500L,
-            longSegmentWarningMs = 20_000L
+        recorder.writePatch(
+            RoughPatch(
+                startNs = 1_000L, endNs = 9_000L, lengthM = 3.25f, segmentCount = 2,
+                peakM = 31.5f, maxD = 4.125f, trigger = PatchTrigger.CLUSTER
+            ),
+            speedMps = 6.5f, epochMs = 1_800_000_000_000L
         )
-        recorder.writeConfig(tunables, calibratedShortStdThreshold = 2.81f, calibratedLongStdThreshold = 3.8f)
+        recorder.close()
 
-        // No recorder.close() call -- unlike the four CSVs, config.json is a
-        // single synchronous write, not buffered, so it's on disk immediately.
+        val lines = patchesFile().readLines()
+        assertEquals(
+            "schema_version,start_ns,end_ns,length_m,segment_count,peak_m,max_d,trigger,speed_mps,epoch_ms",
+            lines[0]
+        )
+        assertEquals("1,1000,9000,3.250,2,31.500,4.125,CLUSTER,6.500,1800000000000", lines[1])
+        // the human-tag corpus is untouched
+        assertEquals(1, labelsFile().readLines().size)
+    }
+
+    @Test
+    fun `writeConfig records the active tunables, both calibrated thresholds, the window and the sensor, independent of the CSV flush cycle`() {
+        val recorder = SessionRecorder(tempFolder.root)
+        val tunables = Tunables(
+            calibrationDurationMs = 10_000L, stdFactor = 3f, floorStd = 0.5f,
+            endQuietMs = 500L, minSegmentDurationMs = 30L, turnYawThresholdRadS = 1.0f,
+            mildSeverityDeviation = 5f, moderateSeverityDeviation = 15f,
+            tagDebounceMs = 500L, longSegmentWarningMs = 20_000L,
+            rollingWindowMs = 1_000L, roughSensitivity = 1.5f, roughPatchDistanceM = 2.5f
+        )
+        recorder.writeConfig(
+            tunables, calibration(), rollingWindowMs = 1_000L,
+            accelerometer = AccelerometerInfo("BMI160 Accelerometer", "BOSCH", 78.4532f, 0.0023f)
+        )
+
+        // No recorder.close() call -- unlike the CSVs, config.json is a single
+        // synchronous write, not buffered, so it's on disk immediately.
         assertEquals(
             "{\n" +
                 "  \"schemaVersion\": 1,\n" +
+                "  \"detectorVersion\": 2,\n" +
                 "  \"calibrationDurationMs\": 10000,\n" +
-                "  \"stdFactor\": 1.5,\n" +
-                "  \"floorStd\": 0.05,\n" +
+                "  \"stdFactor\": 3.0,\n" +
+                "  \"floorStd\": 0.5,\n" +
                 "  \"endQuietMs\": 500,\n" +
                 "  \"minSegmentDurationMs\": 30,\n" +
                 "  \"turnYawThresholdRadS\": 1.0,\n" +
@@ -152,19 +180,44 @@ class SessionRecorderTest {
                 "  \"moderateSeverityDeviation\": 15.0,\n" +
                 "  \"tagDebounceMs\": 500,\n" +
                 "  \"longSegmentWarningMs\": 20000,\n" +
-                "  \"calibratedShortStdThreshold\": 2.81,\n" +
-                "  \"calibratedLongStdThreshold\": 3.8\n" +
+                "  \"rollingWindowMs\": 1000,\n" +
+                "  \"roughSensitivity\": 1.5,\n" +
+                "  \"roughPatchDistanceM\": 2.5,\n" +
+                "  \"calibrationSource\": \"fresh\",\n" +
+                "  \"calibrationPresetName\": null,\n" +
+                "  \"calibratedMThreshold\": 5.5,\n" +
+                "  \"calibratedDThreshold\": 2.2,\n" +
+                "  \"calibrationMeanPeak\": 1.83,\n" +
+                "  \"calibrationMaxRoughness\": 1.47,\n" +
+                "  \"calibrationCleanMs\": 10000,\n" +
+                "  \"calibrationElapsedMs\": 12000,\n" +
+                "  \"accelMaxRangeMs2\": 78.4532,\n" +
+                "  \"accelVendor\": \"BOSCH\",\n" +
+                "  \"accelName\": \"BMI160 Accelerometer\"\n" +
                 "}\n",
             configFile().readText()
         )
     }
 
     @Test
+    fun `writeConfig for a preset session says so, and tolerates an unknown sensor and awkward characters in the name`() {
+        val recorder = SessionRecorder(tempFolder.root)
+        recorder.writeConfig(Tunables(), calibration(presetName = "Rattly \"city\" mount"), rollingWindowMs = 2_000L)
+
+        val content = configFile().readText()
+        assertTrue(content.contains("\"calibrationSource\": \"preset\""))
+        assertTrue(content.contains("\"calibrationPresetName\": \"Rattly \\\"city\\\" mount\""))
+        assertTrue(content.contains("\"rollingWindowMs\": 2000"))
+        assertTrue(content.contains("\"accelMaxRangeMs2\": null"))
+        assertTrue(content.contains("\"accelVendor\": null"))
+    }
+
+    @Test
     fun `writeConfig called twice overwrites rather than appending`() {
         val recorder = SessionRecorder(tempFolder.root)
 
-        recorder.writeConfig(Tunables(stdFactor = 1.5f), 2.2f, 3.0f)
-        recorder.writeConfig(Tunables(stdFactor = 3.0f), 4.4f, 6.0f)
+        recorder.writeConfig(Tunables(stdFactor = 1.5f), calibration(), 1_000L)
+        recorder.writeConfig(Tunables(stdFactor = 3.0f), calibration(), 1_000L)
 
         val content = configFile().readText()
         assertTrue(content.contains("\"stdFactor\": 3.0"))

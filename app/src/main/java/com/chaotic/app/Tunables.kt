@@ -23,10 +23,21 @@ package com.aitken.app
 data class Tunables(
     /** How long the quiet-road calibration phase runs before detection starts. */
     val calibrationDurationMs: Long = 10_000L,
-    /** Multiplier on measured baseline std to derive the detection threshold. */
+    /**
+     * "Detection sensitivity": multiplier on the *average noise peak*
+     * measured in calibration, giving the M threshold (m/s^2 of deviation
+     * from gravity) that opens a segment. Key kept as `stdFactor` for
+     * stored-settings and config.json compatibility; before detector v2 it
+     * multiplied a rolling std instead.
+     */
     val stdFactor: Float = 3f,
-    /** Absolute floor under the measured/derived std, so a freakishly flat calibration can't zero out. */
-    val floorStd: Float = 0.05f,
+    /**
+     * Absolute floor (m/s^2) under both calibrated thresholds, so a
+     * freakishly flat calibration can't zero them out. Key kept as
+     * `floorStd` for compatibility; the default rose from 0.05 (a std
+     * floor) to 0.5 now that it floors an amplitude and a roughness.
+     */
+    val floorStd: Float = 0.5f,
     /** How long a segment must read quiet before it's considered closed. */
     val endQuietMs: Long = 500L,
     /** Segments shorter than this are discarded silently, not emitted. */
@@ -57,5 +68,22 @@ data class Tunables(
      * 104s/311s segments that motivated this fix — so it flags the merge
      * failure early without false-triggering on ordinary riding.
      */
-    val longSegmentWarningMs: Long = 20_000L
+    val longSegmentWarningMs: Long = 20_000L,
+    /**
+     * Width of the sliding window behind the D (roughness) reading — the
+     * yellow line on the live graph. D is the moving average of deviation
+     * from gravity over this span; the D threshold is only valid for the
+     * window it was calibrated with, so a saved preset carries its own.
+     */
+    val rollingWindowMs: Long = 1_000L,
+    /** Margin on the highest windowed roughness seen in calibration, giving the D threshold. */
+    val roughSensitivity: Float = 1.5f,
+    /**
+     * Rough-patch distance in metres, logarithmic 1..100 in Settings. Two or
+     * more segments within this distance of each other, or one chain of
+     * roughness at least this long, register as a rough patch — at any
+     * speed. 2.5 m is an observation-based starting point, not a derived
+     * constant.
+     */
+    val roughPatchDistanceM: Float = 2.5f
 )

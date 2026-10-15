@@ -20,7 +20,10 @@ object SettingsStore {
             mildSeverityDeviation = p.getFloat("mildSeverityDeviation", d.mildSeverityDeviation),
             moderateSeverityDeviation = p.getFloat("moderateSeverityDeviation", d.moderateSeverityDeviation),
             tagDebounceMs = p.getLong("tagDebounceMs", d.tagDebounceMs),
-            longSegmentWarningMs = p.getLong("longSegmentWarningMs", d.longSegmentWarningMs)
+            longSegmentWarningMs = p.getLong("longSegmentWarningMs", d.longSegmentWarningMs),
+            rollingWindowMs = p.getLong("rollingWindowMs", d.rollingWindowMs),
+            roughSensitivity = p.getFloat("roughSensitivity", d.roughSensitivity),
+            roughPatchDistanceM = p.getFloat("roughPatchDistanceM", d.roughPatchDistanceM)
         )
     }
 
@@ -36,6 +39,9 @@ object SettingsStore {
             .putFloat("moderateSeverityDeviation", t.moderateSeverityDeviation)
             .putLong("tagDebounceMs", t.tagDebounceMs)
             .putLong("longSegmentWarningMs", t.longSegmentWarningMs)
+            .putLong("rollingWindowMs", t.rollingWindowMs)
+            .putFloat("roughSensitivity", t.roughSensitivity)
+            .putFloat("roughPatchDistanceM", t.roughPatchDistanceM)
             .apply()
     }
 }

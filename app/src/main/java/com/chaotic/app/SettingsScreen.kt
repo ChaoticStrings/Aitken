@@ -15,10 +15,12 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -48,7 +50,7 @@ fun SettingsScreen(onBack: () -> Unit, onOpenStorageGrant: () -> Unit) {
 
     var calibrationSec by remember { mutableFloatStateOf(current.calibrationDurationMs / 1000f) }
     var stdFactor by remember { mutableFloatStateOf(current.stdFactor) }
-    var floorStd by remember { mutableFloatStateOf(current.floorStd) }
+    var floorStd by remember { mutableFloatStateOf(current.floorStd.coerceIn(0.1f, 3f)) }
     var endQuietMs by remember { mutableFloatStateOf(current.endQuietMs.toFloat()) }
     var minSegmentMs by remember { mutableFloatStateOf(current.minSegmentDurationMs.toFloat()) }
     var turnThreshold by remember { mutableFloatStateOf(current.turnYawThresholdRadS) }
@@ -56,6 +58,11 @@ fun SettingsScreen(onBack: () -> Unit, onOpenStorageGrant: () -> Unit) {
     var moderateDeviation by remember { mutableFloatStateOf(current.moderateSeverityDeviation) }
     var tagDebounceMs by remember { mutableFloatStateOf(current.tagDebounceMs.toFloat()) }
     var longSegmentWarningSec by remember { mutableFloatStateOf(current.longSegmentWarningMs / 1000f) }
+    var rollingWindowMs by remember { mutableFloatStateOf(current.rollingWindowMs.toFloat()) }
+    var roughSensitivity by remember { mutableFloatStateOf(current.roughSensitivity) }
+    // Logarithmic 1..100 m: the slider holds a 0..1 position, converted by LogScale.
+    var patchSlider by remember { mutableFloatStateOf(LogScale.metresToSlider(current.roughPatchDistanceM)) }
+    var presets by remember { mutableStateOf(PresetStore.load(context)) }
 
     Column(
         modifier = Modifier
@@ -86,8 +93,10 @@ fun SettingsScreen(onBack: () -> Unit, onOpenStorageGrant: () -> Unit) {
 
         BigSlider(
             label = "Detection sensitivity",
-            help = "Multiplier on the measured baseline noise. Lower = catches smaller " +
-                "bumps but more false triggers; higher = only strong jolts count.",
+            help = "Multiplier on the average noise peak measured during calibration. A " +
+                "segment opens the instant the road's deviation from resting gravity " +
+                "reaches this multiple. Lower = catches smaller bumps but more false " +
+                "triggers; higher = only strong jolts count.",
             value = stdFactor,
             onValueChange = { stdFactor = it },
             valueRange = 1.5f..6f,
@@ -97,13 +106,52 @@ fun SettingsScreen(onBack: () -> Unit, onOpenStorageGrant: () -> Unit) {
 
         BigSlider(
             label = "Noise floor",
-            help = "Absolute minimum threshold, regardless of sensitivity above — " +
-                "prevents a freakishly smooth calibration from making every sample trigger.",
+            help = "Absolute minimum for both calibrated thresholds (m/s²), regardless of " +
+                "sensitivity above — prevents a freakishly smooth calibration from making " +
+                "every sample trigger.",
             value = floorStd,
             onValueChange = { floorStd = it },
-            valueRange = 0.01f..0.5f,
-            steps = 48,
-            valueLabel = "%.2f".format(floorStd)
+            valueRange = 0.1f..3f,
+            steps = 28, // 0.1 increments
+            valueLabel = "%.1f m/s²".format(floorStd)
+        )
+
+        BigSlider(
+            label = "Sliding window width",
+            help = "How far back the D (roughness) reading averages — the yellow line on the " +
+                "session graph. Shorter = twitchier, reacts to single bumps; longer = " +
+                "smoother, only sustained roughness registers. Watch the yellow line on a " +
+                "real road to judge. A saved preset keeps the width it was calibrated with.",
+            value = rollingWindowMs,
+            onValueChange = { rollingWindowMs = it },
+            valueRange = 250f..5000f,
+            steps = 18, // 250ms increments
+            valueLabel = "%.2f s".format(rollingWindowMs / 1000f)
+        )
+
+        BigSlider(
+            label = "Rough patch sensitivity",
+            help = "Margin on the roughest sustained stretch seen during calibration. A rough " +
+                "patch registers when the D reading exceeds that roughness times this. " +
+                "Lower = gravel and washboard register sooner; higher = only clearly worse " +
+                "than calibration counts.",
+            value = roughSensitivity,
+            onValueChange = { roughSensitivity = it },
+            valueRange = 1f..4f,
+            steps = 11, // 0.25 increments
+            valueLabel = "×%.2f".format(roughSensitivity)
+        )
+
+        BigSlider(
+            label = "Rough patch distance",
+            help = "Two or more potholes within this distance of each other, or a stretch of " +
+                "roughness at least this long, are tagged as a rough patch automatically — " +
+                "at any speed. Logarithmic: 1 m to 100 m.",
+            value = patchSlider,
+            onValueChange = { patchSlider = it },
+            valueRange = 0f..1f,
+            steps = 0,
+            valueLabel = "%.1f m".format(LogScale.snap(LogScale.sliderToMetres(patchSlider)))
         )
 
         BigSlider(
@@ -191,6 +239,39 @@ fun SettingsScreen(onBack: () -> Unit, onOpenStorageGrant: () -> Unit) {
             valueLabel = "${longSegmentWarningSec.toInt()}s"
         )
 
+        Text("Calibration presets", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text(
+            "Saved from the session screen after a fresh calibration. Pick one on the start " +
+                "screen to skip calibrating.",
+            color = Color(0xFF90A4AE),
+            fontSize = 13.sp
+        )
+        if (presets.isEmpty()) {
+            Text("None saved yet.", color = Color(0xFF546E7A), fontSize = 14.sp)
+        }
+        presets.forEach { p ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(p.name, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        "M %.1f  ·  D %.1f  ·  window %.2f s".format(p.mThreshold, p.dThreshold, p.rollingWindowMs / 1000f),
+                        color = Color(0xFF90A4AE),
+                        fontSize = 13.sp
+                    )
+                }
+                TextButton(onClick = {
+                    PresetStore.delete(context, p.id)
+                    presets = PresetStore.load(context)
+                }) {
+                    Text("DELETE", color = Color(0xFFEF5350), fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
         OutlinedButton(
             onClick = onOpenStorageGrant,
             modifier = Modifier.fillMaxWidth().height(56.dp)
@@ -213,7 +294,10 @@ fun SettingsScreen(onBack: () -> Unit, onOpenStorageGrant: () -> Unit) {
                             mildSeverityDeviation = mildDeviation,
                             moderateSeverityDeviation = moderateDeviation,
                             tagDebounceMs = tagDebounceMs.toLong(),
-                            longSegmentWarningMs = (longSegmentWarningSec * 1000).toLong()
+                            longSegmentWarningMs = (longSegmentWarningSec * 1000).toLong(),
+                            rollingWindowMs = rollingWindowMs.toLong(),
+                            roughSensitivity = roughSensitivity,
+                            roughPatchDistanceM = LogScale.snap(LogScale.sliderToMetres(patchSlider))
                         )
                     )
                     onBack()

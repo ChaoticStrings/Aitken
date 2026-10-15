@@ -9,11 +9,13 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
 import com.aitken.app.AitkenUiState
+import com.aitken.app.PresetStore
 import com.aitken.app.SettingsStore
 import com.aitken.app.Tunables
 import com.aitken.backup.BackupAgent
 import com.aitken.classifier.ClassifierConfigLoader
 import com.aitken.location.AndroidGpsProvider
+import com.aitken.segment.CalibrationPreset
 import com.aitken.segment.NoiseFloorCalibrator
 import com.aitken.sensor.AndroidSensorStream
 import com.aitken.storage.AndroidSafStorageAdapter
@@ -81,6 +83,8 @@ class AitkenRecordingService : Service() {
     private var gpsProvider: AndroidGpsProvider? = null
     private var backupAgent: BackupAgent? = null
     private var sessionDir: File? = null
+    private var activeRollingWindowMs: Long = 1_000L
+    private var liveSampleCounter = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -122,29 +126,60 @@ class AitkenRecordingService : Service() {
 
         val recorder = SessionRecorder(dir)
         val tagMatcher = TagMatcher()
+
+        val accelerometer = AndroidSensorStream.queryAccelerometerInfo(this)
+        AitkenUiState.accelInfo.value = accelerometer
+
+        // A saved preset skips calibration. Its D threshold is only valid for
+        // the sliding-window width it was measured with, so it brings its own.
+        val preset = PresetStore.selected(this)
+        val rollingWindowMs = preset?.rollingWindowMs ?: tunables.rollingWindowMs
+        activeRollingWindowMs = rollingWindowMs
+        AitkenUiState.usingPreset.value = preset?.name
+
         val calibrator = NoiseFloorCalibrator(
             calibrationDurationMs = tunables.calibrationDurationMs,
-            stdFactor = tunables.stdFactor,
-            floorStd = tunables.floorStd
+            rollingWindowMs = rollingWindowMs,
+            peakFactor = tunables.stdFactor,
+            roughFactor = tunables.roughSensitivity,
+            floor = tunables.floorStd
         )
         val newPipeline = RecordingPipeline(
             recorder = recorder,
             tagMatcher = tagMatcher,
-            onCalibrationDone = { shortStdThreshold, longStdThreshold ->
+            onCalibrationDone = { result ->
                 AitkenUiState.phaseLabel.value = "RECORDING"
-                AitkenUiState.calibratedThresholdM.value = shortStdThreshold
+                AitkenUiState.calibration.value = result
+                AitkenUiState.calibrationPaused.value = false
                 // ride-data-analysis-update.md §4: record which Tunables were
                 // active and what they actually calibrated to, so a session's
                 // detection behavior is reconstructable from its own files
                 // afterward instead of requiring a forensic replay.
-                recorder.writeConfig(tunables, shortStdThreshold, longStdThreshold)
+                recorder.writeConfig(tunables, result, rollingWindowMs, accelerometer)
             },
             calibrator = calibrator,
+            preset = preset,
+            rollingWindowMs = rollingWindowMs,
+            roughPatchDistanceM = tunables.roughPatchDistanceM,
             endQuietMs = tunables.endQuietMs,
             minSegmentDurationMs = tunables.minSegmentDurationMs,
-            onLiveVertical = { vertical -> AitkenUiState.pushSample(vertical) },
+            accelerometer = accelerometer,
+            onLiveSample = { sample ->
+                AitkenUiState.pushSample(sample)
+                if (sample.clipped) AitkenUiState.clipCount.value = AitkenUiState.clipCount.value + 1
+                // ~20 Hz, rounded to 0.1 -- the D readout recomposes only when its displayed digit changes
+                if (++liveSampleCounter % 5 == 0) {
+                    AitkenUiState.liveRoughness.value = Math.round(sample.roughness * 10f) / 10f
+                }
+            },
             onSegmentClosedForUi = { segment -> AitkenUiState.pushSegment(segment) },
             onCalibrationProgress = { fraction -> AitkenUiState.calibrationProgress.value = fraction },
+            onCalibrationPaused = { paused -> AitkenUiState.calibrationPaused.value = paused },
+            onPatchOpened = { AitkenUiState.patchActive.value = true },
+            onPatchClosed = {
+                AitkenUiState.patchActive.value = false
+                AitkenUiState.patchCount.value = AitkenUiState.patchCount.value + 1
+            },
             // Live-editable mid-ride (ticket 21) -- re-read on every tap rather than
             // snapshotted once like the rest of `tunables` above.
             tagDebounceMs = { SettingsStore.load(this).tagDebounceMs }
@@ -203,6 +238,27 @@ class AitkenRecordingService : Service() {
             is TagMatch.Unmatched -> "$label — no segment found"
             null -> "$label — no sensor data yet"
         }
+    }
+
+    /**
+     * Saves the calibration this session just measured as a named preset the
+     * next session can start from. Returns null if there is nothing to save:
+     * calibration hasn't finished, or this session itself came from a preset.
+     */
+    fun saveCalibrationPreset(name: String): CalibrationPreset? {
+        val result = AitkenUiState.calibration.value ?: return null
+        if (result.presetName != null) return null
+        val now = System.currentTimeMillis()
+        val preset = CalibrationPreset(
+            id = now.toString(),
+            name = name.trim().ifEmpty { "Preset" },
+            mThreshold = result.mThreshold,
+            dThreshold = result.dThreshold,
+            rollingWindowMs = activeRollingWindowMs,
+            createdEpochMs = now
+        )
+        PresetStore.add(this, preset)
+        return preset
     }
 
     private fun buildNotification(): Notification {

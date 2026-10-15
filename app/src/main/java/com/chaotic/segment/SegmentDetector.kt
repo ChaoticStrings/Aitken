@@ -1,6 +1,5 @@
 package com.aitken.segment
 
-import com.aitken.dsp.RollingStats
 import kotlin.math.abs
 import kotlin.math.sqrt
 
@@ -21,51 +20,36 @@ data class OpenSegment(
 )
 
 /**
- * Open-ended, hysteresis-based segment detector (T5) — the novel core the
+ * Amplitude-triggered, open-ended segment detector — the novel core the
  * whole Luna redesign depends on. No fixed duration ceiling.
  *
- * Consumes a short (spike-triggering, ~200ms) and a long (sustained-
- * roughness, tens of seconds) [RollingStats] window; either reading above
- * its own threshold counts as signal. This is what lets a brief smooth lull
- * inside a long rough stretch keep the segment open even when the short
- * window alone would momentarily read "quiet" — the long window still
- * remembers the recent roughness.
+ * **Opens at the very sample whose deviation from resting gravity,
+ * `abs(vertical - gravityBaselineMs2)`, reaches [mThreshold]**, and keeps
+ * recording until the waveform has stayed *below* that threshold for
+ * [endQuietMs] straight ("consistently falls below the threshold and the
+ * event has passed" — a real impact rings through zero crossings, so a
+ * single sub-threshold sample must not end it). The segment's duration runs
+ * from the opening sample to the *last* sample at or above the threshold,
+ * excluding the quiet tail that confirmed the end.
  *
- * Peak-M and RMS-M accumulate only over signal-true samples — quiet
- * in-segment lulls and the trailing hysteresis quiet-tail never drag the
- * reported magnitude down. Duration is measured to the last signal-true
- * sample, excluding that same quiet tail, on both a natural close and a
- * forced one (`endSession`).
+ * Replaces the earlier two-window rolling-std trigger. That trigger fired
+ * only once a 20-sample window's std had built up (a lone spike needed
+ * roughly 4.6x the threshold to fire at all, so onsets lagged and were
+ * blurred), stayed open for the length of its window after the waveform
+ * finished, and its 30-second window was why single "segments" of 56 s,
+ * 104 s and 311 s existed. Sustained roughness is now the
+ * [RoughPatchTracker]'s job, not this class's.
  *
- * [shortStdThreshold], [longStdThreshold], [endQuietMs], and
- * [minSegmentDurationMs] are `[CALIBRATE]` — placeholders pending real ride
- * data, not derived from any audited session. The default window sizes
- * assume a ~100Hz sample rate (20 samples ~= 200ms, 3000 samples ~= 30s).
+ * [peakM] is the largest deviation seen; [rmsM] is the RMS of deviation
+ * over every sample from the opening sample to the last threshold breach —
+ * in-segment lulls count (they are part of the event), the trailing quiet
+ * tail does not.
  *
- * [shortStdThreshold] and [longStdThreshold] in particular should come from
- * [NoiseFloorCalibrator], not a hand-picked number — a guessed absolute
- * threshold doesn't transfer across phone mounts, vehicles, or road
- * surfaces, and would quietly skew which bumps count as signal across the
- * dataset.
- *
- * [gravityBaselineMs2] anchors [peakM]/[rmsM] to *deviation from resting
- * gravity*, not raw magnitude — ride-data-analysis-update.md §5's confirmed
- * bug: tracking `abs(verticalM)` instead of `abs(verticalM -
- * gravityBaselineMs2)` misattributes the peak to whichever sample has the
- * largest raw magnitude, which silently favors an ordinary positive-side
- * spike over a genuinely larger negative-side swing (a sample well below
- * zero can have a *smaller* `abs(vertical)` than a merely-average positive
- * one, even though its true deviation from gravity is the bigger event) —
- * measured at a ~25% segment-misattribution rate across three real ride
- * sessions. [Severity.severityOf] must consume the resulting [peakM]
- * directly as-is; it is already a deviation, not a raw magnitude needing a
- * second gravity subtraction.
+ * [mThreshold] comes from [NoiseFloorCalibrator]; a guessed absolute number
+ * doesn't transfer across phone mounts, vehicles, or road surfaces.
  */
 class SegmentDetector(
-    private val shortWindow: RollingStats = RollingStats(windowSamples = 20),
-    private val longWindow: RollingStats = RollingStats(windowSamples = 3000),
-    private val shortStdThreshold: Float = 2f,
-    private val longStdThreshold: Float = 1f,
+    private val mThreshold: Float,
     private val endQuietMs: Long = 500L,
     private val minSegmentDurationMs: Long = 30L,
     private val gravityBaselineMs2: Float = 9.81f
@@ -77,8 +61,17 @@ class SegmentDetector(
     private var startNs = 0L
     private var lastSignalNs = 0L
     private var peakM = 0f
-    private var sumSq = 0f
-    private var signalSamples = 0
+    private var sumSq = 0.0
+    private var samples = 0
+    private var sumSqAtSignal = 0.0
+    private var samplesAtSignal = 0
+
+    /** True if the most recent [push] was a threshold breach inside an open segment. */
+    var breachedOnLastPush: Boolean = false
+        private set
+
+    /** True while a segment is open (including its quiet tail, before it has closed). */
+    val isOpen: Boolean get() = phase == Phase.OPEN
 
     /**
      * Push one vertical-acceleration sample.
@@ -88,19 +81,32 @@ class SegmentDetector(
      * @return the segment that just closed, or null if none did.
      */
     fun push(timestampNs: Long, verticalM: Float, turning: Boolean): ClosedSegment? {
-        val shortStd = shortWindow.push(verticalM).std
-        val longStd = longWindow.push(verticalM).std
-        val anySignal = shortStd >= shortStdThreshold || longStd >= longStdThreshold
+        val deviation = abs(verticalM - gravityBaselineMs2)
+        val breach = deviation >= mThreshold
+        breachedOnLastPush = false
 
         return when (phase) {
             Phase.IDLE -> {
-                if (anySignal && !turning) open(timestampNs, verticalM)
+                if (breach && !turning) {
+                    phase = Phase.OPEN
+                    startNs = timestampNs
+                    lastSignalNs = timestampNs
+                    peakM = deviation
+                    sumSq = 0.0
+                    samples = 0
+                    accumulate(deviation)
+                    markSignal()
+                    breachedOnLastPush = true
+                }
                 null
             }
             Phase.OPEN -> {
-                if (anySignal) {
+                accumulate(deviation)
+                if (breach) {
                     lastSignalNs = timestampNs
-                    accumulate(verticalM)
+                    if (deviation > peakM) peakM = deviation
+                    markSignal()
+                    breachedOnLastPush = true
                     null
                 } else {
                     val quietMs = (timestampNs - lastSignalNs) / 1_000_000L
@@ -119,24 +125,18 @@ class SegmentDetector(
         return OpenSegment(startNs, lastSignalNs, peakM, rms())
     }
 
-    private fun open(timestampNs: Long, verticalM: Float) {
-        phase = Phase.OPEN
-        startNs = timestampNs
-        lastSignalNs = timestampNs
-        peakM = 0f
-        sumSq = 0f
-        signalSamples = 0
-        accumulate(verticalM)
+    private fun accumulate(deviation: Float) {
+        sumSq += deviation.toDouble() * deviation
+        samples++
     }
 
-    private fun accumulate(verticalM: Float) {
-        val magnitude = abs(verticalM - gravityBaselineMs2)
-        if (magnitude > peakM) peakM = magnitude
-        sumSq += magnitude * magnitude
-        signalSamples++
+    private fun markSignal() {
+        sumSqAtSignal = sumSq
+        samplesAtSignal = samples
     }
 
-    private fun rms(): Float = if (signalSamples > 0) sqrt(sumSq / signalSamples) else 0f
+    private fun rms(): Float =
+        if (samplesAtSignal > 0) sqrt(sumSqAtSignal / samplesAtSignal).toFloat() else 0f
 
     private fun close(): ClosedSegment? {
         val durationNs = lastSignalNs - startNs

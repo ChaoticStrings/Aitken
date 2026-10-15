@@ -43,6 +43,57 @@ folder picker and persisted. Both `BackupAgent` and `ClassifierConfigLoader` are
 built on top of this one adapter rather than each independently wrapping SAF —
 one seam for the whole "external synced folder" concern, not two.
 
+## Detector v2 (added in tickets 28-29)
+
+These supersede the "hysteresis-detected" wording of **Segment** above for sessions
+whose `config.json` says `"detectorVersion": 2`. A segment is now opened by a plain
+amplitude breach, not a rolling-std crossing. Sustained roughness is a separate,
+parallel concept (below), no longer baked into segment detection.
+
+**M threshold**:
+Amplitude (m/s² of deviation from resting gravity, `abs(vertical - 9.81)`) at which a
+segment opens — the instant a sample reaches it — and below which it must stay for
+`endQuietMs` to close. Calibrated as (mean of the peaks of that deviation over the
+clean calibration window) × Detection sensitivity (`stdFactor`).
+
+**D (roughness)**:
+In the live UI and detector v2: the sliding-window moving average of deviation from
+resting gravity — the yellow line, the "hysteresis". **This overloads D (Duration)
+above.** Duration is still D in the M/D/V model; the live readout is called D only
+because that is what the rider's tuning vocabulary settled on. Treat "the D reading" /
+"D threshold" as roughness, and "segment duration" as duration, wherever the two meet.
+
+**D threshold**:
+Roughness above which a rough patch can register. Calibrated as (highest sliding-window
+mean seen over the clean calibration window) × Rough patch sensitivity
+(`roughSensitivity`). Only valid for the window width it was measured with.
+
+**Sliding window**:
+Time-based (`rollingWindowMs`, 250 ms-5 s) moving average behind the D reading.
+
+**Rough patch**:
+A chain of roughness — segment breaches, or D at/above its threshold — whose internal
+gaps are at most the patch distance (`roughPatchDistanceM`, logarithmic 1-100 m, default
+2.5 m) of *travelled distance*, and which holds two or more segments or spans at least
+the patch distance. Registered automatically; written to `patches.csv`, never to
+`labels.csv`. Replaces tapping START/END on a "Rough stretch" button.
+_Avoid_: Rough stretch for auto-registered patches — that is the manual tag label, kept
+for old sessions.
+
+**Dirty sample** (calibration):
+A sample excluded from calibration because it falls within 500 ms of a turn or of a
+GPS-speed change of ≥ 1 m/s². Clean time, not wall time, counts toward the calibration
+duration.
+
+**Calibration preset**:
+A saved (M threshold, D threshold, sliding-window width) triple. Selecting one at start
+skips calibration.
+
+**Clipping**:
+An accelerometer axis sitting at its saturation limit (`Sensor.getMaximumRange()`).
+Anything above that on the graph is the *clipped spectrum* — real motion the sensor
+could not report.
+
 ## Workbench v2 (added in ticket 01, WORKBENCH_PLAN.md §2)
 
 **Source Bundle**:

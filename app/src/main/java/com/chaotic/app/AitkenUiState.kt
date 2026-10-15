@@ -4,7 +4,10 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.snapshots.SnapshotStateList
+import com.aitken.recording.LiveSample
+import com.aitken.segment.CalibrationResult
 import com.aitken.segment.ClosedSegment
+import com.aitken.sensor.AccelerometerInfo
 
 /**
  * Shared, observable live-recording state, bridging [AitkenRecordingService]
@@ -29,7 +32,7 @@ object AitkenUiState {
 
     val phaseLabel = mutableStateOf("IDLE")
     val isRecording = mutableStateOf(false)
-    val waveform: SnapshotStateList<Float> = mutableStateListOf()
+    val waveform: SnapshotStateList<LiveSample> = mutableStateListOf()
     val recentSegments: SnapshotStateList<ClosedSegment> = mutableStateListOf()
     val lastTagResult = mutableStateOf<String?>(null)
     /**
@@ -41,8 +44,22 @@ object AitkenUiState {
      */
     /** 0f..1f progress through the CALIBRATING phase — see RecordingPipeline.onCalibrationProgress. */
     val calibrationProgress = mutableStateOf(0f)
-    /** The session's calibrated short-window std threshold, null until calibration completes. */
-    val calibratedThresholdM = mutableStateOf<Float?>(null)
+    /** What the session is detecting with (M and D thresholds), null until calibration/warm-up completes. */
+    val calibration = mutableStateOf<CalibrationResult?>(null)
+    /** True while calibration is currently ignoring samples (turning / accelerating / braking). */
+    val calibrationPaused = mutableStateOf(false)
+    /** Name of the preset this session started from, null for a fresh calibration. */
+    val usingPreset = mutableStateOf<String?>(null)
+    /** The phone's accelerometer: vendor, name, saturation limit. Null if unknown. */
+    val accelInfo = mutableStateOf<AccelerometerInfo?>(null)
+    /** Samples this session that hit the sensor's saturation limit. */
+    val clipCount = mutableStateOf(0)
+    /** Live D reading (sliding-window roughness), rounded to 0.1 and updated at ~20 Hz so the readout doesn't recompose every sample. */
+    val liveRoughness = mutableStateOf(0f)
+    /** A registered rough patch is in progress right now. */
+    val patchActive = mutableStateOf(false)
+    /** Rough patches registered so far this session. */
+    val patchCount = mutableStateOf(0)
     /**
      * How long (ms) the currently-open segment has been open, null while
      * IDLE/CALIBRATING or between segments. Feeds the long-segment warning
@@ -62,9 +79,9 @@ object AitkenUiState {
      * writes into one snapshot means readers only ever see "before" or
      * "after", never the momentary MAX+1 state in between.
      */
-    fun pushSample(vertical: Float) {
+    fun pushSample(sample: LiveSample) {
         Snapshot.withMutableSnapshot {
-            waveform.add(vertical)
+            waveform.add(sample)
             while (waveform.size > MAX_WAVEFORM_SAMPLES) waveform.removeAt(0)
         }
     }
@@ -83,7 +100,13 @@ object AitkenUiState {
         isRecording.value = false
         lastTagResult.value = null
         calibrationProgress.value = 0f
-        calibratedThresholdM.value = null
+        calibration.value = null
+        calibrationPaused.value = false
+        usingPreset.value = null
+        clipCount.value = 0
+        liveRoughness.value = 0f
+        patchActive.value = false
+        patchCount.value = 0
         openSegmentDurationMs.value = null
     }
 }

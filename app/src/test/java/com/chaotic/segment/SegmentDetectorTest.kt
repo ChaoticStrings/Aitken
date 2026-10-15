@@ -1,298 +1,154 @@
 package com.aitken.segment
 
-import com.aitken.dsp.RollingStats
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * SegmentDetector's edge cases, hand-derived from T5's behavioral
- * description (the literal "ten enumerated" list from the original grilling
- * session wasn't available when this ticket was implemented — this is a
- * from-scratch enumeration against the spec, erring toward completeness).
+ * Amplitude-triggered detector. Shared shape: mThreshold=5, endQuietMs=25,
+ * minSegmentDurationMs=5, samples every 10ms. Verticals are `9.81 + dev` (or
+ * `9.81 - dev` for a downward swing), so each sample's deviation from
+ * gravity reads straight off the trace.
  *
- * Most tests below share one detector shape: shortWindow=2, longWindow=2,
- * both thresholds=5f, endQuietMs=25L. Under that shape, the sequence
- * (v=0 @0ms, v=20 @10ms, v=0 @20ms, v=0 @30ms, v=0 @40ms, v=0 @50ms) is
- * hand-traced once here and reused by several tests:
- *   - @0ms:  buf=[0]              std=0            -> IDLE stays IDLE
- *   - @10ms: buf=[0,20]  mean=10  var=100  std=10   -> OPENS (10>=5)
- *   - @20ms: buf=[20,0]  mean=10  var=100  std=10   -> still signal (10>=5),
- *            lastSignalNs advances to 20ms
- *   - @30ms: buf=[0,0]   mean=0   var=0    std=0    -> quiet (0<5),
- *            quietMs=(30-20)=10 < endQuietMs(25) -> stays OPEN
- *   - @40ms: buf=[0,0]            std=0            -> quiet,
- *            quietMs=(40-20)=20 < 25 -> stays OPEN
- *   - @50ms: buf=[0,0]            std=0            -> quiet,
- *            quietMs=(50-20)=30 >= 25 -> CLOSES
- *            durationNs = lastSignalNs(20ms) - startNs(10ms) = 10ms
- *            peakM: deviation from the 9.81 gravity baseline (§5 fix), not
- *            raw magnitude -> devs of the two accumulated samples (v=20,
- *            v=0) are |20-9.81|=10.19 and |0-9.81|=9.81 -> peak=10.19
- *            rmsM = sqrt((10.19^2 + 9.81^2) / 2) ~= 10.002
+ * The basic trace, reused below (dev per sample):
+ *   @0  0 -> IDLE
+ *   @10 6 -> 6 >= 5: OPENS at exactly this sample (start=10ms)
+ *   @20 2 -> below; quiet since the last breach @10 = 10ms < 25 -> stays open
+ *   @30 7 -> breach again: lastSignal=30, peak=7
+ *   @40 0 -> quiet 10ms
+ *   @50 0 -> quiet 20ms
+ *   @60 0 -> quiet 30ms >= 25 -> CLOSES; duration = 30 - 10 = 20ms
+ *   rms over the span @10..@30 (the @20 lull included, the tail excluded):
+ *     sqrt((36 + 4 + 49) / 3) = sqrt(29.667) ~= 5.447
  */
 class SegmentDetectorTest {
 
-    private val ms = 1_000_000L // ns per ms, for readable timestamps
+    private val ms = 1_000_000L
+    private val g = 9.81f
 
-    private fun sharedShapeDetector(
-        endQuietMs: Long = 25L,
-        minSegmentDurationMs: Long = 5L
-    ) = SegmentDetector(
-        shortWindow = RollingStats(windowSamples = 2),
-        longWindow = RollingStats(windowSamples = 2),
-        shortStdThreshold = 5f,
-        longStdThreshold = 5f,
-        endQuietMs = endQuietMs,
-        minSegmentDurationMs = minSegmentDurationMs
+    private fun detector(mThreshold: Float = 5f) = SegmentDetector(
+        mThreshold = mThreshold, endQuietMs = 25L, minSegmentDurationMs = 5L
     )
 
-    @Test
-    fun `idle stays idle while quiet`() {
-        val detector = sharedShapeDetector()
-
-        var t = 0L
-        repeat(10) {
-            val closed = detector.push(t, 0f, turning = false)
-            assertNull(closed)
-            assertNull(detector.currentOpenSegment())
-            t += 10 * ms
-        }
-    }
+    private fun SegmentDetector.up(t: Long, dev: Float, turning: Boolean = false) =
+        push(t * ms, g + dev, turning)
 
     @Test
-    fun `idle transitions to open when signal appears and not turning`() {
-        val detector = sharedShapeDetector()
+    fun `opens at the very sample that breaches the threshold and closes only after the waveform stays below it`() {
+        val d = detector()
 
-        assertNull(detector.push(0L, 0f, turning = false))
-        assertNull(detector.currentOpenSegment())
-
-        assertNull(detector.push(10 * ms, 20f, turning = false))
-
-        val open = detector.currentOpenSegment()
-        assertNotNull(open)
-        assertEquals(10 * ms, open!!.startNs)
-        // Deviation from the 9.81 gravity baseline, not raw magnitude:
-        // |20 - 9.81| = 10.19 (§5 fix — was 20f under the old abs(vertical) bug).
-        assertEquals(10.19f, open!!.peakM, 0.001f)
-    }
-
-    @Test
-    fun `idle does not open a new segment while turning`() {
-        val detector = sharedShapeDetector()
-
-        detector.push(0L, 0f, turning = false)
-        val closed = detector.push(10 * ms, 20f, turning = true)
-
-        assertNull(closed)
-        assertNull(detector.currentOpenSegment())
-    }
-
-    @Test
-    fun `open segment continues extending while turning, not truncated`() {
-        val detector = sharedShapeDetector()
-        detector.push(0L, 0f, turning = false)
-        detector.push(10 * ms, 20f, turning = false) // opens
-
-        detector.push(20 * ms, 0f, turning = true) // still signal-true; turning ignored once open
-
-        val open = detector.currentOpenSegment()
-        assertNotNull(open)
-        assertEquals(20 * ms, open!!.lastSignalNs)
-    }
-
-    @Test
-    fun `open segment closes after the quiet tail elapses, with duration measured to the last signal-true sample`() {
-        val detector = sharedShapeDetector(minSegmentDurationMs = 5L)
-        detector.push(0L, 0f, turning = false)
-        detector.push(10 * ms, 20f, turning = false)
-        detector.push(20 * ms, 0f, turning = false)
-        assertNull(detector.push(30 * ms, 0f, turning = false))
-        assertNull(detector.push(40 * ms, 0f, turning = false))
-
-        val closed = detector.push(50 * ms, 0f, turning = false)
-
-        assertNotNull(closed)
-        // Excludes the 20ms->50ms quiet tail: measured only to the last
-        // signal-true sample at 20ms.
-        assertEquals(10 * ms, closed!!.durationNs)
-    }
-
-    @Test
-    fun `peak and rms accumulate only over signal-true samples, unaffected by the trailing quiet tail`() {
-        val detector = sharedShapeDetector(minSegmentDurationMs = 5L)
-        detector.push(0L, 0f, turning = false)
-        detector.push(10 * ms, 20f, turning = false)
-        detector.push(20 * ms, 0f, turning = false)
-        detector.push(30 * ms, 0f, turning = false)
-        detector.push(40 * ms, 0f, turning = false)
-
-        val closed = detector.push(50 * ms, 0f, turning = false)
-
-        assertNotNull(closed)
-        // Deviation from the 9.81 gravity baseline, not raw magnitude (§5 fix):
-        // samples accumulated are v=20 (@10ms) and v=0 (@20ms) ->
-        // devs = |20-9.81|=10.19, |0-9.81|=9.81 -> peak=10.19,
-        // rms = sqrt((10.19^2 + 9.81^2) / 2) ~= 10.002.
-        // (Old abs(vertical) bug would have reported peak=20f, rms=14.142f.)
-        assertEquals(10.19f, closed!!.peakM, 0.001f)
-        assertEquals(10.002f, closed!!.rmsM, 0.01f)
-    }
-
-    @Test
-    fun `peak tracks true deviation from gravity, not raw magnitude — a bigger negative swing outranks a smaller positive spike`() {
-        // Regression test for ride-data-analysis-update.md §5: the shipped
-        // bug tracked abs(verticalM) instead of abs(verticalM - 9.81), so a
-        // sample well below zero could read as a *smaller* "magnitude" than
-        // an ordinary positive spike even though its true deviation from
-        // gravity was the bigger event — exactly the -17.1/+20 shape found
-        // in session 124056's real data (true devs 27.0 and 36.5 for two
-        // such samples there).
-        //
-        // Hand-traced against sharedShapeDetector's shape (window=2,
-        // threshold=5f, endQuietMs=25L):
-        //   @0ms  v=0:     buf=[0]              std=0            -> IDLE
-        //   @10ms v=-17.1: buf=[0,-17.1] mean=-8.55 std~=8.55     -> OPENS
-        //                  accumulate(-17.1): dev=|-17.1-9.81|=26.91 -> peak=26.91
-        //   @20ms v=20:    buf=[-17.1,20] mean=1.45 std~=18.55    -> still signal
-        //                  accumulate(20): dev=|20-9.81|=10.19 < 26.91 -> peak stays 26.91
-        //                  (old buggy formula: abs(20)=20 > abs(-17.1)=17.1,
-        //                  would have WRONGLY overwritten peak to 20)
-        //   @30ms v=0:     buf=[20,0] mean=10 std=10              -> still signal
-        //                  accumulate(0): dev=9.81 < 26.91 -> peak stays 26.91
-        //   @40ms v=0:     buf=[0,0] std=0 -> quiet, quietMs=10<25 -> stays OPEN
-        //   @50ms v=0:     buf=[0,0] std=0 -> quiet, quietMs=20<25 -> stays OPEN
-        //   @60ms v=0:     buf=[0,0] std=0 -> quiet, quietMs=30>=25 -> CLOSES
-        //   durationNs = lastSignalNs(30ms) - startNs(10ms) = 20ms
-        //   rms over devs [26.91, 10.19, 9.81] = sqrt(924.22/3) ~= 17.552
-        val detector = sharedShapeDetector(minSegmentDurationMs = 5L)
-        detector.push(0L, 0f, turning = false)
-        detector.push(10 * ms, -17.1f, turning = false)
-        detector.push(20 * ms, 20f, turning = false)
-        detector.push(30 * ms, 0f, turning = false)
-        detector.push(40 * ms, 0f, turning = false)
-
-        val closed = detector.push(60 * ms, 0f, turning = false)
-
-        assertNotNull(closed)
-        assertEquals(26.91f, closed!!.peakM, 0.01f)
-        assertEquals(17.552f, closed!!.rmsM, 0.01f)
-    }
-
-    @Test
-    fun `a closed segment shorter than the minimum duration is discarded silently`() {
-        // Same trace as above (actual duration = 10ms) but the floor is set
-        // above that, so the close is silent.
-        val detector = sharedShapeDetector(minSegmentDurationMs = 20L)
-        detector.push(0L, 0f, turning = false)
-        detector.push(10 * ms, 20f, turning = false)
-        detector.push(20 * ms, 0f, turning = false)
-        detector.push(30 * ms, 0f, turning = false)
-        detector.push(40 * ms, 0f, turning = false)
-
-        val closed = detector.push(50 * ms, 0f, turning = false)
-
-        assertNull(closed)
-        // Discarded, not stuck: state still reset back to IDLE.
-        assertNull(detector.currentOpenSegment())
-    }
-
-    @Test
-    fun `stopping the session while a segment is open force-closes it instead of silently dropping it`() {
-        val detector = sharedShapeDetector(minSegmentDurationMs = 5L)
-        detector.push(0L, 0f, turning = false)
-        detector.push(10 * ms, 20f, turning = false)
-        detector.push(20 * ms, 0f, turning = false)
-
-        val closed = detector.endSession()
+        assertNull(d.up(0, 0f)); assertFalse(d.isOpen)
+        assertNull(d.up(10, 6f))
+        assertTrue(d.isOpen)
+        assertEquals(10 * ms, d.currentOpenSegment()!!.startNs)   // no onset lag
+        assertNull(d.up(20, 2f))
+        assertNull(d.up(30, 7f))
+        assertNull(d.up(40, 0f))
+        assertNull(d.up(50, 0f))
+        val closed = d.up(60, 0f)
 
         assertNotNull(closed)
         assertEquals(10 * ms, closed!!.startNs)
-        assertEquals(10 * ms, closed!!.durationNs)
-        assertNull(detector.currentOpenSegment())
+        assertEquals(20 * ms, closed.durationNs)       // to the LAST breach, excluding the quiet tail
+        assertEquals(7f, closed.peakM, 1e-4f)
+        assertEquals(5.447f, closed.rmsM, 1e-3f)
+        assertFalse(d.isOpen)
     }
 
     @Test
-    fun `endSession returns null when no segment is open`() {
-        val detector = sharedShapeDetector()
-        detector.push(0L, 0f, turning = false)
-
-        assertNull(detector.endSession())
+    fun `closes at exactly endQuietMs of quiet, not a sample later`() {
+        val d = detector()           // endQuietMs = 25
+        d.up(10, 6f)
+        d.up(20, 6f)                 // lastSignal = 20
+        assertNull(d.up(44, 0f))     // 24ms quiet < 25 -> still open
+        assertNotNull(d.up(45, 0f))  // 25ms quiet >= 25 -> closes
     }
 
     @Test
-    fun `currentOpenSegment reflects the in-progress segment while open and is null while idle`() {
-        val detector = sharedShapeDetector(minSegmentDurationMs = 5L)
-
-        assertNull(detector.currentOpenSegment())
-        detector.push(0L, 0f, turning = false)
-        assertNull(detector.currentOpenSegment())
-
-        detector.push(10 * ms, 20f, turning = false)
-        assertNotNull(detector.currentOpenSegment())
-
-        detector.push(20 * ms, 0f, turning = false)
-        detector.push(30 * ms, 0f, turning = false)
-        detector.push(40 * ms, 0f, turning = false)
-        detector.push(50 * ms, 0f, turning = false) // closes naturally
-
-        assertNull(detector.currentOpenSegment())
+    fun `a sub-threshold sample inside an event does not end it`() {
+        val d = detector()
+        d.up(10, 6f)
+        d.up(20, 0f)   // zero crossing, 10ms quiet < 25
+        d.up(30, 6f)   // event continues
+        assertTrue(d.isOpen)
+        assertEquals(30 * ms, d.currentOpenSegment()!!.lastSignalNs)
     }
 
     @Test
-    fun `short window alone detects an isolated spike the long window hasn't caught up to yet`() {
-        // shortWindow=2/threshold=4 catches the spike immediately; longWindow=6
-        // averages it against 5 prior quiet samples and stays under its own
-        // threshold=6 at this same tick. Hand-traced:
-        //   after 5x v=0: both windows read [0,0] / [0,0,0,0,0], std=0
-        //   @6th push v=10: short buf=[0,10] std=5.0 (>=4 -> true)
-        //                   long  buf=[0,0,0,0,0,10] mean=1.667 std~=3.727 (<6 -> false)
-        val detector = SegmentDetector(
-            shortWindow = RollingStats(windowSamples = 2),
-            longWindow = RollingStats(windowSamples = 6),
-            shortStdThreshold = 4f,
-            longStdThreshold = 6f,
-            endQuietMs = 500L,
-            minSegmentDurationMs = 5L
-        )
-
-        var t = 0L
-        repeat(5) {
-            detector.push(t, 0f, turning = false)
-            assertNull(detector.currentOpenSegment())
-            t += 10 * ms
-        }
-
-        detector.push(t, 10f, turning = false)
-
-        assertNotNull(detector.currentOpenSegment())
-        assertEquals(t, detector.currentOpenSegment()!!.startNs)
+    fun `breachedOnLastPush is true only for threshold breaches inside a segment`() {
+        val d = detector()
+        d.up(0, 0f);  assertFalse(d.breachedOnLastPush)
+        d.up(10, 6f); assertTrue(d.breachedOnLastPush)
+        d.up(20, 2f); assertFalse(d.breachedOnLastPush)
+        d.up(30, 7f); assertTrue(d.breachedOnLastPush)
     }
 
     @Test
-    fun `long window alone keeps a segment open through a brief lull the short window already reads as quiet`() {
-        // shortWindow=2/threshold=2, longWindow=4/threshold=1.5. Hand-traced:
-        //   @0ms  v=0: buf=[0]           std=0            -> IDLE
-        //   @10ms v=8: buf=[0,8] (both)  mean=4 var=16 std=4  -> OPENS (>=2 and >=1.5)
-        //   @20ms v=8: short buf=[8,8]   mean=8 var=0  std=0    (<2  -> "looks quiet")
-        //              long  buf=[0,8,8] mean=5.33 var=14.22 std~=3.77 (>=1.5 -> still signal)
-        //              anySignal true via long alone -> segment extends, no quiet timer starts
-        val detector = SegmentDetector(
-            shortWindow = RollingStats(windowSamples = 2),
-            longWindow = RollingStats(windowSamples = 4),
-            shortStdThreshold = 2f,
-            longStdThreshold = 1.5f,
-            endQuietMs = 500L,
-            minSegmentDurationMs = 5L
-        )
+    fun `a downward swing past the threshold opens a segment just like an upward one`() {
+        val d = detector()
+        assertNull(d.push(10 * ms, g - 6f, false))
+        assertTrue(d.isOpen)
+        assertEquals(6f, d.currentOpenSegment()!!.peakM, 1e-4f)
+    }
 
-        detector.push(0L, 0f, turning = false)
-        detector.push(10 * ms, 8f, turning = false)
-        detector.push(20 * ms, 8f, turning = false)
+    @Test
+    fun `just under the threshold never opens`() {
+        val d = detector()
+        listOf(0L, 10L, 20L, 30L).forEach { t -> d.up(t, 4.9f) }
+        assertFalse(d.isOpen)
+        assertNull(d.endSession())
+    }
 
-        val open = detector.currentOpenSegment()
-        assertNotNull(open)
-        assertEquals(20 * ms, open!!.lastSignalNs)
+    @Test
+    fun `turning suppresses a new start but never truncates an open segment`() {
+        val d = detector()
+        d.up(10, 6f, turning = true)
+        assertFalse(d.isOpen)                       // suppressed
+
+        d.up(20, 6f)                                // opens normally
+        d.up(30, 8f, turning = true)                // breach while turning: still extends
+        assertTrue(d.isOpen)
+        assertEquals(30 * ms, d.currentOpenSegment()!!.lastSignalNs)
+        assertEquals(8f, d.currentOpenSegment()!!.peakM, 1e-4f)
+    }
+
+    @Test
+    fun `a segment shorter than the minimum duration is discarded silently`() {
+        val d = detector()
+        d.up(10, 6f)           // single breach: duration 0 < 5ms
+        d.up(20, 0f)
+        d.up(30, 0f)
+        assertNull(d.up(40, 0f))   // quiet 30 >= 25 -> closes, but discarded
+        assertFalse(d.isOpen)
+    }
+
+    @Test
+    fun `endSession force-closes an open segment and excludes the quiet tail from duration and rms`() {
+        val d = detector()
+        d.up(10, 6f)
+        d.up(20, 6f)
+        d.up(30, 0f)           // quiet tail, accumulated but excluded at close
+
+        val closed = d.endSession()
+        assertNotNull(closed)
+        assertEquals(10 * ms, closed!!.startNs)
+        assertEquals(10 * ms, closed.durationNs)
+        assertEquals(6f, closed.peakM, 1e-4f)
+        assertEquals(6f, closed.rmsM, 1e-4f)          // sqrt((36+36)/2)
+        assertNull(d.endSession())                     // idempotent
+    }
+
+    @Test
+    fun `after closing, a later breach opens a fresh segment`() {
+        val d = detector()
+        d.up(10, 6f); d.up(20, 0f); d.up(30, 0f); d.up(40, 0f)   // closes @40? quiet 30>=25
+        assertFalse(d.isOpen)
+        d.up(100, 9f)
+        assertTrue(d.isOpen)
+        assertEquals(100 * ms, d.currentOpenSegment()!!.startNs)
+        assertEquals(9f, d.currentOpenSegment()!!.peakM, 1e-4f)
     }
 }

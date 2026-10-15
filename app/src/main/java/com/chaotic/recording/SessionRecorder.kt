@@ -2,16 +2,19 @@ package com.aitken.recording
 
 import com.aitken.app.Tunables
 import com.aitken.location.GpsFix
+import com.aitken.segment.CalibrationResult
 import com.aitken.segment.ClosedSegment
+import com.aitken.segment.RoughPatch
+import com.aitken.sensor.AccelerometerInfo
 import java.io.BufferedWriter
 import java.io.File
 import java.io.FileWriter
 import java.util.Locale
 
 /**
- * Crash-safe incremental writer owning all five session files (sensor, gps,
- * segments, labels, and config) behind one interface, centralizing the
- * flush guarantee so it lives in exactly one place. Each of the four
+ * Crash-safe incremental writer owning all six session files (sensor, gps,
+ * segments, labels, patches, and config) behind one interface, centralizing the
+ * flush guarantee so it lives in exactly one place. Each of the five
  * incremental files carries its own independent `schema_version`
  * (architecture invariant 2, T2) since they evolve at different rates;
  * [writeConfig]'s config.json is written once, not incrementally, so it
@@ -83,6 +86,20 @@ class SessionRecorder(private val sessionDir: File, flushEveryNRows: Int = 100) 
         flushEveryNRows
     )
 
+    /**
+     * Auto-registered rough patches (distance-based, no rider tap). Kept in
+     * their own file rather than as RANGE tags in labels.csv on purpose:
+     * labels.csv is the *human* tag corpus the classifier loop will train
+     * on, and a tag written by a detector rule would silently turn that
+     * into training on its own output. The Workbench ignores files it
+     * doesn't know, so this is invisible to it until a parser is added.
+     */
+    private val patchesFile = CsvFile(
+        File(sessionDir, "patches.csv"),
+        "schema_version,start_ns,end_ns,length_m,segment_count,peak_m,max_d,trigger,speed_mps,epoch_ms",
+        flushEveryNRows
+    )
+
     fun writeSensorSample(
         timestampSensorNs: Long,
         accelX: Float, accelY: Float, accelZ: Float,
@@ -120,6 +137,18 @@ class SessionRecorder(private val sessionDir: File, flushEveryNRows: Int = 100) 
         )
     }
 
+    fun writePatch(patch: RoughPatch, speedMps: Float?, epochMs: Long) {
+        patchesFile.writeRow(
+            listOf(
+                SCHEMA_VERSION.toString(),
+                patch.startNs.toString(), patch.endNs.toString(),
+                patch.lengthM.csv(), patch.segmentCount.toString(),
+                patch.peakM.csv(), patch.maxD.csv(),
+                patch.trigger.name, speedMps.csv(), epochMs.toString()
+            )
+        )
+    }
+
     /**
      * Writes `config.json`: the [Tunables] active for this session plus the
      * two thresholds [NoiseFloorCalibrator] actually derived from them,
@@ -131,10 +160,18 @@ class SessionRecorder(private val sessionDir: File, flushEveryNRows: Int = 100) 
      * per tap rather than snapshotted, so a stale copy of it here is
      * expected, not a bug).
      */
-    fun writeConfig(tunables: Tunables, calibratedShortStdThreshold: Float, calibratedLongStdThreshold: Float) {
+    fun writeConfig(
+        tunables: Tunables,
+        calibration: CalibrationResult,
+        rollingWindowMs: Long,
+        accelerometer: AccelerometerInfo? = null
+    ) {
         val json = buildString {
             append("{\n")
             append("  \"schemaVersion\": $SCHEMA_VERSION,\n")
+            // Detector v2 (amplitude trigger, M/D calibration): stdFactor and
+            // floorStd keep their keys but changed meaning -- see Tunables.
+            append("  \"detectorVersion\": 2,\n")
             append("  \"calibrationDurationMs\": ${tunables.calibrationDurationMs},\n")
             append("  \"stdFactor\": ${tunables.stdFactor},\n")
             append("  \"floorStd\": ${tunables.floorStd},\n")
@@ -145,8 +182,20 @@ class SessionRecorder(private val sessionDir: File, flushEveryNRows: Int = 100) 
             append("  \"moderateSeverityDeviation\": ${tunables.moderateSeverityDeviation},\n")
             append("  \"tagDebounceMs\": ${tunables.tagDebounceMs},\n")
             append("  \"longSegmentWarningMs\": ${tunables.longSegmentWarningMs},\n")
-            append("  \"calibratedShortStdThreshold\": $calibratedShortStdThreshold,\n")
-            append("  \"calibratedLongStdThreshold\": $calibratedLongStdThreshold\n")
+            append("  \"rollingWindowMs\": $rollingWindowMs,\n")
+            append("  \"roughSensitivity\": ${tunables.roughSensitivity},\n")
+            append("  \"roughPatchDistanceM\": ${tunables.roughPatchDistanceM},\n")
+            append("  \"calibrationSource\": \"${if (calibration.presetName != null) "preset" else "fresh"}\",\n")
+            append("  \"calibrationPresetName\": ${calibration.presetName?.let { "\"${it.jsonEscaped()}\"" } ?: "null"},\n")
+            append("  \"calibratedMThreshold\": ${calibration.mThreshold},\n")
+            append("  \"calibratedDThreshold\": ${calibration.dThreshold},\n")
+            append("  \"calibrationMeanPeak\": ${calibration.meanPeak},\n")
+            append("  \"calibrationMaxRoughness\": ${calibration.maxRoughness},\n")
+            append("  \"calibrationCleanMs\": ${calibration.cleanMs},\n")
+            append("  \"calibrationElapsedMs\": ${calibration.elapsedMs},\n")
+            append("  \"accelMaxRangeMs2\": ${accelerometer?.maxRangeMs2 ?: "null"},\n")
+            append("  \"accelVendor\": ${accelerometer?.let { "\"${it.vendor.jsonEscaped()}\"" } ?: "null"},\n")
+            append("  \"accelName\": ${accelerometer?.let { "\"${it.name.jsonEscaped()}\"" } ?: "null"}\n")
             append("}\n")
         }
         File(sessionDir, "config.json").writeText(json)
@@ -169,13 +218,14 @@ class SessionRecorder(private val sessionDir: File, flushEveryNRows: Int = 100) 
         )
     }
 
-    /** Flushes and closes all four incrementally-written CSV files. Call when a session ends.
+    /** Flushes and closes all five incrementally-written CSV files. Call when a session ends.
      *  ([writeConfig]'s config.json needs no closing — it's one synchronous write, not a stream.) */
     fun close() {
         sensorFile.close()
         gpsFile.close()
         segmentsFile.close()
         labelsFile.close()
+        patchesFile.close()
     }
 
     private companion object {
@@ -189,6 +239,8 @@ class SessionRecorder(private val sessionDir: File, flushEveryNRows: Int = 100) 
  * `"%.3f".format(...)`, which silently emits a comma decimal separator
  * (corrupting a comma-delimited CSV) on a non-US-locale device.
  */
+private fun String.jsonEscaped(): String = replace("\\", "\\\\").replace("\"", "\\\"")
+
 private fun Float?.csv(): String = this?.let { String.format(Locale.US, "%.3f", it) } ?: ""
 
 /**

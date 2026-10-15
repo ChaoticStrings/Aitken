@@ -106,4 +106,23 @@ class AndroidSensorStream(context: Context) : SensorStream {
         stop()
         handlerThread.quitSafely()
     }
+
+    companion object {
+        /**
+         * Reads the default accelerometer's name, vendor and saturation limit
+         * (`Sensor.getMaximumRange()`, m/s^2) without registering a listener —
+         * safe to call from the idle screen as well as from a session.
+         * Null if the device has no accelerometer.
+         */
+        fun queryAccelerometerInfo(context: Context): AccelerometerInfo? {
+            val manager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+            val s = manager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) ?: return null
+            return AccelerometerInfo(
+                name = s.name ?: "",
+                vendor = s.vendor ?: "",
+                maxRangeMs2 = s.maximumRange,
+                resolutionMs2 = s.resolution
+            )
+        }
+    }
 }
