@@ -1,0 +1,20 @@
+{
+  "name": "aitken-atlas-tests",
+  "private": true,
+  "type": "module",
+  "description": "Browser tests for the Atlas (multi-session map) mode of Prototype/workbench.html. Runs the real page in real Chrome.",
+  "scripts": {
+    "fixtures": "node gen-fixtures.mjs",
+    "test": "node run-all.mjs",
+    "shots": "node shots.mjs"
+  },
+  "devDependencies": {
+    "jszip": "3.10.1",
+    "leaflet": "1.9.4",
+    "playwright-core": "1.56.0",
+    "sql.js": "1.12.0"
+  },
+  "dependencies": {
+    "@playwright/test": "^1.64.1"
+  }
+}

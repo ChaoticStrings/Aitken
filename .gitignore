@@ -14,3 +14,30 @@
 .cxx
 local.properties
 /Logcat
+
+# ---- Atlas (Prototype/workbench.html) ------------------------------------------
+# Atlas keeps its SQLite database in the browser, or in a file you choose
+# (Data tab -> "Choose file location"). Keep that file OUTSIDE the repo; if one
+# ever lands inside the folder anyway, git will not see it.
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.db
+*.db-journal
+aitken-atlas*
+
+# ---- Raw ride data: exact GPS traces. Never commit these. -----------------------
+/Sessions/
+/sessions/
+session_*.zip
+session_*/
+# ...except the deliberately trimmed test fixtures
+!/workbench/test/fixtures/
+!/workbench/test/fixtures/**
+
+# ---- IDE and log noise (not needed on the repo page) ------------------------------
+/.idea/
+*.logcat
+*.log
