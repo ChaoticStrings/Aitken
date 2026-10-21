@@ -598,6 +598,8 @@ body.mode-atlas #atlas{display:block;}
 .atc-big > div > .v{font-family:var(--font-mono);font-weight:700;font-size:14px;} .atc-big > div > .k{font-size:9px;color:var(--at-faint);letter-spacing:1px;text-transform:uppercase;margin-top:2px;font-weight:700;}
 .atc-ev{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:9px;cursor:pointer;font-size:11.5px;}
 .atc-ev:hover{background:var(--at-sel);} .atc-ev .m{font-family:var(--font-mono);font-weight:700;width:34px;}
+.atc-aw{padding:7px 9px;margin-bottom:5px;border-radius:9px;border:1px solid var(--at-line);cursor:pointer;font-size:11.5px;} .atc-aw:hover{background:var(--at-sel);}
+.atc-aw .nm{font-weight:700;} .atc-aw .wk{margin-top:2px;line-height:1.4;color:var(--at-dim);} .atc-aw .mt{margin-top:2px;font-size:10.5px;line-height:1.4;color:var(--at-faint);}
 .atc-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;}
 
 /* ---------- Mapping modal ---------- */
@@ -4290,10 +4292,22 @@ function buildRoads(rows, map){
   });
   out.noGeom=noGeom; return out;
 }
+/** A road may carry several awards (one contractor each). They live in props.__awards (props_json: no schema change); `contractor` stays the primary one, so colour, Index and focus keep working. */
+const AWARD_FIELDS=['contractor','ref','work','year','cost','status','office','note','as_published'], MAX_AWARDS=200;
+function cleanAwards(list){
+  const out=[]; if(!Array.isArray(list)) return out;
+  for(const a of list.slice(0,MAX_AWARDS)){ if(!a||typeof a!=='object') continue; const o={}; for(const k of AWARD_FIELDS){ const raw=a[k]; const v=(typeof raw==='string'||typeof raw==='number')?cleanStr(raw):''; if(v) o[k]=v.slice(0,k==='work'?300:240); } if(o.contractor) out.push(o); }
+  return out;
+}
+const awardsOf=(r)=>{ const a=r.props&&r.props.__awards; return Array.isArray(a)?a.filter(x=>x&&typeof x.contractor==='string'&&x.contractor):[]; };
+const contractorsOf=(r)=>{ const s=new Set(); if(r.contractor) s.add(r.contractor); for(const a of awardsOf(r)) s.add(a.contractor); return [...s]; };
+const contrLabel=(r)=>{ const cs=contractorsOf(r); return cs.length?cs[0]+(cs.length>1?` +${cs.length-1} more`:''):'no contractor named'; };
 function packToRoads(pack){
   return (pack.roads||[]).map((r,i)=>{
     const geom=finalizeGeom(normalizeGeometry(r.geometry)||(Array.isArray(r.coordinates)?{t:'line',p:[r.coordinates.map(c=>[c[0],c[1]])]}:null));
-    return { id:String(r.id!=null?r.id:'r'+i), name:cleanStr(r.name), ref:cleanStr(r.ref), contractor:cleanStr(r.contractor), match:r.match||(geom?'supplied':'pending'), note:r.match_note||'', bbox:geomBBox(geom), geom, props:r.props||{} };
+    const props={}; for(const [k,v] of Object.entries(r.props||{})) if(!k.startsWith('__')) props[k]=v;
+    const awards=cleanAwards(r.awards); if(awards.length) props.__awards=awards;
+    return { id:String(r.id!=null?r.id:'r'+i), name:cleanStr(r.name), ref:cleanStr(r.ref), contractor:cleanStr(r.contractor)||(awards.length?awards[0].contractor:''), match:r.match||(geom?'supplied':'pending'), note:r.match_note||'', bbox:geomBBox(geom), geom, props };
   });
 }
 function regionForRoads(roads){
@@ -4629,7 +4643,7 @@ function syncPatches(){
 
 function roadStyleOpts(r, state){
   const named=isNamed(r), col=named?contrColor():dsColor(), z=Map_.map?Map_.map.getZoom():12;
-  const foc=Prefs.focusContractor, dim=!!foc && r.contractor!==foc;
+  const foc=Prefs.focusContractor, dim=!!foc && !contractorsOf(r).includes(foc);
   const base={ color:col, weight:roadWeight(z)+(state==='sel'?2:0), opacity: state==='sel'?1: state==='hover'?.9 : dim?.1 : .52, lineCap:'round', lineJoin:'round' };
   if(r.match==='ambiguous') base.dashArray='4 6'; else base.dashArray=null;
   return base;
@@ -4664,7 +4678,7 @@ function syncSources(){
 }
 function roadTipHtml(r,src){
   const named=isNamed(r);
-  return `<div><b>${esc(r.name||r.ref||'Unnamed road')}</b></div><div class="sub">${named?esc(r.contractor):(r.contractor?esc(r.contractor)+' (unconfirmed match)':'no contractor named')} · ${esc(src.meta.name)}</div>`;
+  return `<div><b>${esc(r.name||r.ref||'Unnamed road')}</b></div><div class="sub">${named?esc(contrLabel(r)):(r.contractor?esc(contrLabel(r))+' (unconfirmed match)':'no contractor named')} · ${esc(src.meta.name)}</div>`;
 }
 /** events win over the road underneath them when both sit under the cursor */
 function pickEvent(pt){
@@ -4999,9 +5013,9 @@ const IDX_CAP=6000;
 function indexItems(){
   const kind=Prefs.idxTab, out=[];
   if(kind==='roads'){
-    srcSet.forEach(id=>{ const s=ensureRoads(id); if(!s) return; s.roads.forEach(r=>{ if(!r.name&&!r.ref) return; out.push({ key:`${id}:${r.id}`, label:r.name||r.ref, sub:[r.ref&&r.name?r.ref:'', r.contractor||'no contractor named'].filter(Boolean).join(' · '), dot:isNamed(r)?'var(--at-contr)':'var(--at-ds)', go:()=>selectRoad(r,id), dim:!r.geom }); }); });
+    srcSet.forEach(id=>{ const s=ensureRoads(id); if(!s) return; s.roads.forEach(r=>{ if(!r.name&&!r.ref) return; out.push({ key:`${id}:${r.id}`, label:r.name||r.ref, sub:[r.ref&&r.name?r.ref:'', contrLabel(r)].filter(Boolean).join(' · '), dot:isNamed(r)?'var(--at-contr)':'var(--at-ds)', go:()=>selectRoad(r,id), dim:!r.geom }); }); });
   } else if(kind==='contractors'){
-    const m=new Map(); srcSet.forEach(id=>{ const s=ensureRoads(id); if(!s) return; s.roads.forEach(r=>{ if(!r.contractor) return; const e=m.get(r.contractor)||{n:0,named:0,bb:null}; e.n++; if(isNamed(r)) e.named++; e.bb=bboxUnion(e.bb,r.bbox); m.set(r.contractor,e); }); });
+    const m=new Map(); srcSet.forEach(id=>{ const s=ensureRoads(id); if(!s) return; s.roads.forEach(r=>{ for(const c of contractorsOf(r)){ const e=m.get(c)||{n:0,named:0,bb:null}; e.n++; if(isNamed(r)) e.named++; e.bb=bboxUnion(e.bb,r.bbox); m.set(c,e); } }); });
     m.forEach((e,name)=>out.push({ key:'c:'+name, label:name, sub:`${e.n} road${e.n===1?'':'s'}${e.named<e.n?` · ${e.named} confirmed`:''}`, dot:'var(--at-contr)', go:()=>focusContractor(name) }));
   } else {
     sessionsView().forEach(s=>{ const m=s.meta; out.push({ key:'s:'+m.id, label:fmtDateTime(m.startedMs)||m.name, sub:`${shortId(m.name)} · ${fmtKm(m.distM)} · ${m.nSeg} events`, dot:hsl(sessionHue(m.id),75,60), go:()=>{ sessSet.add(m.id); afterSelChange(); renderSessions(); selectSession(m.id); } }); });
@@ -5114,8 +5128,8 @@ function buildSearchIndex(){
   allRegions().forEach(r=>out.push({ kind:'Regions', label:r.name, sub:'Region', dot:'var(--at-ds)', go:()=>goRegion(r.id) }));
   const seenC=new Set();
   Model.sources.forEach((src,sid)=>{ const s=ensureRoads(sid); s.roads.forEach(r=>{
-    if(r.name||r.ref) out.push({ kind:'Roads', label:r.name||r.ref, sub:[r.ref&&r.name?r.ref:'',r.contractor||'no contractor named',src.meta.name].filter(Boolean).join(' · '), dot:isNamed(r)?'var(--at-contr)':'var(--at-ds)', go:()=>{ if(!srcSet.has(sid)){ srcSet.add(sid); afterSelChange(); renderSources(); } selectRoad(r,sid); }, hay:(r.name||'')+' '+(r.ref||'')+' '+(r.contractor||'') });
-    if(r.contractor&&!seenC.has(r.contractor)){ seenC.add(r.contractor); out.push({ kind:'Contractors', label:r.contractor, sub:'Contractor · highlight all their roads', dot:'var(--at-contr)', go:()=>{ if(!srcSet.has(sid)){ srcSet.add(sid); afterSelChange(); renderSources(); } focusContractor(r.contractor); } }); } }); });
+    if(r.name||r.ref) out.push({ kind:'Roads', label:r.name||r.ref, sub:[r.ref&&r.name?r.ref:'',contrLabel(r),src.meta.name].filter(Boolean).join(' · '), dot:isNamed(r)?'var(--at-contr)':'var(--at-ds)', go:()=>{ if(!srcSet.has(sid)){ srcSet.add(sid); afterSelChange(); renderSources(); } selectRoad(r,sid); }, hay:(r.name||'')+' '+(r.ref||'')+' '+contractorsOf(r).join(' ') });
+    for(const c of contractorsOf(r)){ if(seenC.has(c)) continue; seenC.add(c); out.push({ kind:'Contractors', label:c, sub:'Contractor · highlight all their roads', dot:'var(--at-contr)', go:()=>{ if(!srcSet.has(sid)){ srcSet.add(sid); afterSelChange(); renderSources(); } focusContractor(c); } }); } }); });
   Model.sessions.forEach(s=>{ const m=s.meta; out.push({ kind:'Sessions', label:fmtDateTime(m.startedMs)||m.name, sub:`${shortId(m.name)} · ${fmtKm(m.distM)}`, dot:hsl(sessionHue(m.id),75,60), go:()=>{ sessSet.add(m.id); afterSelChange(); renderSessions(); selectSession(m.id); }, hay:m.name+' '+shortId(m.name)+' '+(fmtDateTime(m.startedMs)||'') }); });
   searchIdx=out; searchIdxVer=searchVer;
 }
@@ -5165,10 +5179,10 @@ function bindSearch(){
 }
 function focusContractor(name){
   Prefs.focusContractor=name; savePrefs(); Active.sources.forEach(s=>s.items.forEach(it=>styleRoad(it)));
-  let bb=null; Model.sources.forEach((s,id)=>{ if(srcSet.has(id)) ensureRoads(id).roads.forEach(r=>{ if(r.contractor===name&&r.bbox) bb=bboxUnion(bb,r.bbox); }); });
+  let bb=null; Model.sources.forEach((s,id)=>{ if(srcSet.has(id)) ensureRoads(id).roads.forEach(r=>{ if(r.bbox&&contractorsOf(r).includes(name)) bb=bboxUnion(bb,r.bbox); }); });
   if(bb) fitBBox(bb); renderFocusChip();
 }
-function renderFocusChip(){ const c=$('#atFocusChip'); const n=Prefs.focusContractor; c.classList.toggle('on',!!n); if(n){ let k=0; srcSet.forEach(id=>{ const s=ensureRoads(id); if(s) s.roads.forEach(r=>{ if(r.contractor===n) k++; }); }); $('#atFocusText').innerHTML=`Focus: <b>${esc(n)}</b> · ${k} road${k===1?'':'s'}`; } }
+function renderFocusChip(){ const c=$('#atFocusChip'); const n=Prefs.focusContractor; c.classList.toggle('on',!!n); if(n){ let k=0; srcSet.forEach(id=>{ const s=ensureRoads(id); if(s) s.roads.forEach(r=>{ if(contractorsOf(r).includes(n)) k++; }); }); $('#atFocusText').innerHTML=`Focus: <b>${esc(n)}</b> · ${k} road${k===1?'':'s'}`; } }
 
 /* ============================ H. DETAIL CARDS =========================== */
 
@@ -5239,8 +5253,9 @@ function rideEvidence(road){
 }
 function roadCard(r, srcId){
   const src=Model.sources.get(srcId), named=isNamed(r), ev=rideEvidence(r);
-  const conf={ supplied:'geometry came with the data', unique:'matched to one road in OpenStreetMap by name', ambiguous:'name appears in separate places; contractor withheld', none:'not found in OpenStreetMap', pending:'no geometry yet' }[r.match]||r.match;
-  let body=`<div class="atc-sec"><div class="atc-contr${named?'':' none'}"><span class="dot"></span><div style="min-width:0"><div class="nm">${r.contractor?esc(r.contractor):'No contractor named'}</div><div class="sm">${named?'Confirmed against '+esc(conf):(r.contractor?'Unconfirmed: '+esc(conf):'This road is in the dataset, but the record names nobody')}</div></div></div></div>`;
+  const conf={ supplied:'geometry came with the data', unique:'matched to one road in OpenStreetMap by name', ambiguous:'name appears in separate places; contractor withheld', unlocated:'the award is real per the source, but its stretch is not located: the whole road is drawn', none:'not found in OpenStreetMap', pending:'no geometry yet' }[r.match]||r.match;
+  const aw=awardsOf(r), AW_SHOW=30, more=contractorsOf(r).length-1;
+  let body=`<div class="atc-sec"><div class="atc-contr${named?'':' none'}"><span class="dot"></span><div style="min-width:0"><div class="nm">${r.contractor?esc(r.contractor)+(more>0?`<span style="font-weight:400;color:var(--at-faint)"> +${more} more</span>`:''):'No contractor named'}</div><div class="sm">${named?'Confirmed against '+esc(conf):(r.contractor?'Unconfirmed: '+esc(conf):'This road is in the dataset, but the record names nobody')}</div></div></div>${r.note?`<div class="at-hint" style="margin-top:6px">${esc(r.note)}</div>`:''}</div>`;
   const fin=ev.events.filter(e=>finite(e.m)), worst=fin.length?Math.max(...fin.map(e=>e.m)):null, marked=ev.events.filter(e=>e.marked).length;
   body+=`<div class="atc-sec"><h6>Your rides on this road</h6>`;
   if(!sessSet.size) body+=`<div class="at-hint">Tick some sessions to see how you have ridden this road.</div>`;
@@ -5252,18 +5267,21 @@ function roadCard(r, srcId){
     if(top.length) body+=`<div style="margin-top:8px">${top.map(e=>`<div class="atc-ev" data-card="ev" data-key="${esc(e.key)}"><span class="m" style="color:${finite(e.m)?WB.severityColor(e.m):'var(--at-dim)'}">${finite(e.m)?'M'+e.m.toFixed(1):'tag'}</span><span style="flex:1">${e.marked?esc(typeMeta(e.type).label):'Unmarked'}</span><span class="at-mono" style="color:var(--at-faint);font-size:10px">${esc(shortId(Model.sessions.get(e.sid).meta.name))}</span></div>`).join('')}</div>`;
   }
   body+='</div>';
-  const props=Object.entries(r.props||{}).slice(0,10);
+  if(aw.length&&(aw.length>1||aw[0].work||aw[0].year||aw[0].status||aw[0].ref||aw[0].note)) body+=`<div class="atc-sec"><h6>${aw.length===1?'Award':'Awards on this road ('+aw.length+')'}</h6>${aw.slice(0,AW_SHOW).map(a=>{
+    const meta=[a.year,a.cost,a.status,a.ref].filter(Boolean).map(esc).join(' · ');
+    return `<div class="atc-aw" data-card="focusc" data-v="${esc(a.contractor)}" title="Highlight every road of this contractor"><div class="nm">${esc(a.contractor)}</div>${a.work?`<div class="wk">${esc(a.work)}</div>`:''}${meta?`<div class="mt">${meta}</div>`:''}${a.office?`<div class="mt">${esc(a.office)}</div>`:''}${a.note?`<div class="mt">${esc(a.note)}</div>`:''}${a.as_published?`<div class="mt">as published: ${esc(a.as_published)}</div>`:''}</div>`; }).join('')}${aw.length>AW_SHOW?`<div class="at-hint">+${aw.length-AW_SHOW} more awards are stored but not listed here.</div>`:''}</div>`;
+  const props=Object.entries(r.props||{}).filter(([k])=>!k.startsWith('__')).slice(0,10);
   if(props.length) body+=`<div class="atc-sec"><h6>Record</h6>${props.map(([k,v])=>kv(esc(k),esc(v),false)).join('')}</div>`;
-  if(src) body+=`<div class="atc-sec"><h6>Source</h6>${kv('Dataset',esc(src.meta.name),false)}${src.meta.license?kv('Licence / provenance',esc(src.meta.license),false):''}${src.meta.retrieved?kv('Retrieved',esc(src.meta.retrieved),false):''}${safeUrl(src.meta.url)?`<div class="at-kv"><span class="k">Link</span><span class="v" style="font-family:inherit"><a href="${esc(safeUrl(src.meta.url))}" target="_blank" rel="noopener" style="color:var(--at-contr)">open</a></span></div>`:''}${src.meta.sample?'<div class="at-hint" style="color:var(--at-warn);margin-top:6px">SAMPLE data: fictional, for layout testing only.</div>':''}</div>`;
+  if(src) body+=`<div class="atc-sec"><h6>Source</h6>${kv('Dataset',esc(src.meta.name),false)}${src.meta.license?kv('Licence / provenance',esc(src.meta.license),false):''}${src.meta.retrieved?kv('Retrieved',esc(src.meta.retrieved),false):''}${safeUrl(src.meta.url)?`<div class="at-kv"><span class="k">Link</span><span class="v" style="font-family:inherit"><a href="${esc(safeUrl(src.meta.url))}" target="_blank" rel="noopener" style="color:var(--at-contr)">open</a></span></div>`:''}${src.meta.notes?`<div class="at-hint" style="margin-top:6px">${esc(src.meta.notes)}</div>`:''}${src.meta.sample?'<div class="at-hint" style="color:var(--at-warn);margin-top:6px">SAMPLE data: fictional, for layout testing only.</div>':''}</div>`;
   body+=`<div class="atc-actions"><button data-card="fitroad">Zoom to road</button>${r.contractor?`<button data-card="focusc" data-v="${esc(r.contractor)}">Highlight ${esc(r.contractor.length>22?r.contractor.slice(0,21)+'…':r.contractor)}</button>`:''}</div>`;
   return cardShell(`<div class="atc-badge" style="background:${named?'var(--at-contr)':'var(--at-ds)'};font-size:18px">&#9473;</div>`, esc(r.name||r.ref||'Unnamed road'), esc([r.ref&&r.name?r.ref:'', src?src.meta.name:''].filter(Boolean).join(' · ')), body);
 }
 function showSourceCard(id){
   const s=ensureRoads(id); const m=s.meta; const regs=allRegions().filter(r=>r.id!=='india');
-  const n={supplied:0,unique:0,ambiguous:0,none:0,pending:0}; s.roads.forEach(r=>{ n[r.match]=(n[r.match]||0)+1; });
+  const n={supplied:0,unique:0,ambiguous:0,unlocated:0,none:0,pending:0}; s.roads.forEach(r=>{ n[r.match]=(n[r.match]||0)+1; });
   const body=`<div class="atc-sec"><div class="atc-big"><div><div class="v">${fmtInt(m.nRoads)}</div><div class="k">roads</div></div><div><div class="v" style="color:var(--at-contr)">${fmtInt(s.roads.filter(isNamed).length)}</div><div class="k">named</div></div><div><div class="v">${fmtInt(n.pending+n.none)}</div><div class="k">unplaced</div></div></div></div>
-    <div class="atc-sec"><h6>Provenance</h6>${kv('File',esc(m.file||'–'),false)}${kv('Licence',esc(m.license||'not recorded'),false)}${kv('Retrieved',esc(m.retrieved||'–'),false)}${safeUrl(m.url)?`<div class="at-kv"><span class="k">Link</span><span class="v" style="font-family:inherit"><a href="${esc(safeUrl(m.url))}" target="_blank" rel="noopener" style="color:var(--at-contr)">open</a></span></div>`:''}</div>
-    <div class="atc-sec"><h6>Geometry</h6>${kv('Came with the data',n.supplied)}${kv('Matched to one OSM road',n.unique)}${kv('Ambiguous name',n.ambiguous)}${kv('Not found / waiting',n.none+n.pending)}
+    <div class="atc-sec"><h6>Provenance</h6>${kv('File',esc(m.file||'–'),false)}${kv('Licence',esc(m.license||'not recorded'),false)}${kv('Retrieved',esc(m.retrieved||'–'),false)}${safeUrl(m.url)?`<div class="at-kv"><span class="k">Link</span><span class="v" style="font-family:inherit"><a href="${esc(safeUrl(m.url))}" target="_blank" rel="noopener" style="color:var(--at-contr)">open</a></span></div>`:''}${m.notes?`<div class="at-hint" style="margin-top:6px">${esc(m.notes)}</div>`:''}</div>
+    <div class="atc-sec"><h6>Geometry</h6>${kv('Came with the data',n.supplied)}${kv('Matched to one OSM road',n.unique)}${kv('Ambiguous name',n.ambiguous)}${n.unlocated?kv('Whole road, stretch not located',n.unlocated):''}${kv('Not found / waiting',n.none+n.pending)}
       <div class="at-row2" style="margin-top:8px"><select data-card="region">${'<option value="">Region: none</option>'+regs.map(r=>`<option value="${esc(r.id)}"${r.id===m.regionId?' selected':''}>Region: ${esc(r.name)}</option>`).join('')}</select></div></div>
     <div class="atc-actions"><button data-card="srczoom" data-id="${id}">Zoom to source</button>${n.pending?`<button class="primary" data-card="srcresolve" data-id="${id}">Look up ${n.pending} on OSM</button>`:''}</div>`;
   card().innerHTML=cardShell(`<div class="atc-badge at-srcswatch" style="width:42px;height:42px;border-radius:13px"></div>`, esc(m.name), 'Contractor data source', body); card().classList.add('on');
@@ -5359,7 +5377,7 @@ function openSourceModal(draft){
           roads=buildRoads(draft.rows,mapping); }
         if(!roads.length){ toast('No usable records found with that mapping.','err'); return; }
         const id=hash64(name+'|'+draft.fileName), regionId=$('#atmRegion').value||regionForRoads(roads)||null;
-        const meta={ id, name, regionId, license:$('#atmLic').value.trim(), url:safeUrl($('#atmUrl').value), retrieved:new Date().toISOString().slice(0,10), notes:'', sample:!!src.sample, file:draft.fileName, mapping };
+        const meta={ id, name, regionId, license:$('#atmLic').value.trim(), url:safeUrl($('#atmUrl').value), retrieved:cleanStr(src.retrieved).slice(0,40)||new Date().toISOString().slice(0,10), notes:cleanStr(src.notes).slice(0,600), sample:!!src.sample, file:draft.fileName, mapping };
         saveSource(meta,roads); Active.sources.delete(id);
         loadSources(); refreshSourceCounts(); srcSet.add(id); searchVer++; afterSelChange(); renderSources(); renderIndex(); renderRegions(); Store.flush();
         const named=roads.filter(r=>r.contractor).length, pend=roads.filter(r=>r.match==='pending').length;

@@ -411,6 +411,7 @@ Aitken/
 ├── app/              the Android app — Kotlin + Jetpack Compose (Luna, built)
 ├── Prototype/        workbench.html — the single-file review tool described above
 ├── workbench/        an early, in-progress structured rewrite of the review tool
+├── Datasets/         contractor and road data tooling that feeds Atlas (generated packs are never committed)
 └── Documentation/    specs, architecture notes, and design/progress notes
 ```
 

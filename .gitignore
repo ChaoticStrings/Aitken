@@ -28,6 +28,16 @@ local.properties
 *.db-journal
 aitken-atlas*
 
+# ---- Datasets (Datasets/): downloads, intermediates and generated packs ---------
+# A pack names contractors (many of them individuals) and this repository is public.
+# Commit the tools, the docs and the fictional fixtures; never the data they produce.
+/Datasets/work/
+/Datasets/packs/
+/Datasets/raw/
+datasource_*.json
+__pycache__/
+*.pyc
+
 # ---- Raw ride data: exact GPS traces. Never commit these. -----------------------
 /Sessions/
 /sessions/

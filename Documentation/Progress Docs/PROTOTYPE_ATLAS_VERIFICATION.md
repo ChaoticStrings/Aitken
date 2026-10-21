@@ -70,6 +70,12 @@ Pack format:
                "props": { "work": "…" } } ] }
 ```
 
+Optional additions to the pack (2026-10-20, all ignored by older builds; details in `Datasets/README.md` and
+`PROTOTYPE_ATLAS_DATASETS_TRANSITION.md`): `source.retrieved` and `source.notes`; road `match: "unlocated"`
+(award is real, its stretch is not located, whole road drawn purple); road `awards: [{contractor, ref, work, year,
+cost, status, office, note, as_published}]` for several contractors on one road (kept in `props_json.__awards`, so
+`SCHEMA_VERSION` is unchanged).
+
 DB tables: `sessions, gps, segments, tags, patches, sources, roads, regions, ui_state, meta`
 (`PRAGMA user_version = 1`). Ordinary SQLite: open it with `sqlite3` or DB Browser.
 

@@ -1,0 +1,198 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "kind": "nh",
+    "id": "nh:NH-999:MH",
+    "name": "NH-999",
+    "state": "MH",
+    "contracts": [
+     {
+      "id": "morth-upc:T999A",
+      "contractor": "M/s Fictional Roadways Pvt Ltd",
+      "title": "Four-laning of Test A to Test B section of NH-999",
+      "chainages": [
+       {
+        "start_km": 10.0,
+        "end_km": 40.0
+       }
+      ],
+      "status": "Under Construction",
+      "start": "2024-01-01",
+      "completion": null,
+      "division": "TEST NH DIVISION",
+      "url": "https://example.invalid/morth",
+      "ref": "T999A",
+      "highway": "NH-999",
+      "locate": "located",
+      "places": [
+       "Test A",
+       "Test B"
+      ],
+      "chord_km": 28.0,
+      "chainage_km": 30.0
+     },
+     {
+      "id": "morth-upc:T999B",
+      "contractor": "FICTIONAL ROADWAYS PRIVATE LIMITED",
+      "title": "Periodic maintenance of NH-999",
+      "chainages": [],
+      "status": "Awarded, Not Appointed",
+      "start": null,
+      "completion": null,
+      "division": "TEST NH DIVISION",
+      "url": "https://example.invalid/morth",
+      "ref": "T999B",
+      "highway": "NH-999",
+      "locate": "no_place_names_parsed"
+     },
+     {
+      "id": "morth-upc:T999C",
+      "contractor": "Bikash Test Kumar",
+      "title": "Strengthening of NH-999",
+      "chainages": [
+       {
+        "start_km": 60.0,
+        "end_km": 70.0
+       }
+      ],
+      "status": "Under Construction",
+      "start": "2023-01-01",
+      "completion": null,
+      "division": "TEST NH DIVISION",
+      "url": "https://example.invalid/morth",
+      "ref": "T999C",
+      "highway": "NH-999",
+      "locate": "places_not_in_gazetteer"
+     }
+    ]
+   },
+   "geometry": {
+    "type": "MultiLineString",
+    "coordinates": [
+     [
+      [
+       74.0,
+       18.0
+      ],
+      [
+       74.1,
+       18.05
+      ],
+      [
+       74.2,
+       18.1
+      ],
+      [
+       74.4,
+       18.2
+      ]
+     ],
+     [
+      [
+       74.4,
+       18.2
+      ],
+      [
+       74.6,
+       18.3
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "kind": "nh",
+    "id": "nh:NH-998:KA",
+    "name": "NH-998",
+    "state": "KA",
+    "contracts": [
+     {
+      "id": "morth-upc:T998A",
+      "contractor": "Test Karnataka Engineers Pvt Ltd",
+      "title": "Rehabilitation of NH-998",
+      "chainages": [],
+      "status": "Under Construction",
+      "start": "2025-02-02",
+      "completion": null,
+      "division": "TEST NH DIVISION",
+      "url": "https://example.invalid/morth",
+      "ref": "T998A",
+      "highway": "NH-998",
+      "locate": "no_place_names_parsed"
+     }
+    ]
+   },
+   "geometry": {
+    "type": "MultiLineString",
+    "coordinates": [
+     [
+      [
+       75.0,
+       15.0
+      ],
+      [
+       75.2,
+       15.1
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "kind": "nh-seg",
+    "id": "nhseg:morth-upc:T999A",
+    "name": "NH-999",
+    "state": "MH",
+    "contracts": [
+     {
+      "id": "morth-upc:T999A",
+      "contractor": "M/s Fictional Roadways Pvt Ltd",
+      "title": "Four-laning of Test A to Test B section of NH-999",
+      "chainages": [
+       {
+        "start_km": 10.0,
+        "end_km": 40.0
+       }
+      ],
+      "status": "Under Construction",
+      "start": "2024-01-01",
+      "completion": null,
+      "division": "TEST NH DIVISION",
+      "url": "https://example.invalid/morth",
+      "ref": "T999A",
+      "highway": "NH-999",
+      "locate": "located",
+      "places": [
+       "Test A",
+       "Test B"
+      ],
+      "chord_km": 28.0,
+      "chainage_km": 30.0
+     }
+    ]
+   },
+   "geometry": {
+    "type": "MultiLineString",
+    "coordinates": [
+     [
+      [
+       74.1,
+       18.05
+      ],
+      [
+       74.2,
+       18.1
+      ]
+     ]
+    ]
+   }
+  }
+ ]
+}

@@ -1,0 +1,170 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "Test Indiranagar Road",
+    "area": "Indiranagar",
+    "city": "Bengaluru",
+    "minor": false,
+    "id": "karnataka:1",
+    "awards": [
+     {
+      "tn": "T/1",
+      "title": "Resurfacing of Test Indiranagar Road",
+      "contractor": "M/s Fictional Infra Pvt. Ltd.",
+      "date": "2024-03-01",
+      "office": "TEST BBMP DIVISION",
+      "amount": 1500000.0,
+      "basis": "OSM road name (unique in area) appears verbatim in tender title",
+      "ambiguous": 1
+     },
+     {
+      "tn": "T/2",
+      "title": "Improvement to Test Indiranagar Road",
+      "contractor": "FICTIONAL INFRA PRIVATE LIMITED",
+      "date": "2025-01-10",
+      "office": "TEST BBMP DIVISION",
+      "amount": 2750000.0,
+      "basis": "OSM road name (unique in area) appears verbatim in tender title",
+      "ambiguous": 1
+     },
+     {
+      "tn": "T/3",
+      "title": "Asphalting Test Indiranagar Road",
+      "contractor": "RAVI K SHARMA",
+      "date": "2023-05-05",
+      "office": "TEST BBMP DIVISION",
+      "amount": 900000.0,
+      "basis": "OSM road name (unique in area) appears verbatim in tender title",
+      "ambiguous": 1
+     },
+     {
+      "tn": "T/4",
+      "title": "Test Indiranagar Road drain",
+      "contractor": "ANIL V( TEST ANIL BUILDERS )",
+      "date": "2022-02-02",
+      "office": "TEST BBMP DIVISION",
+      "amount": null,
+      "basis": "OSM road name (unique in area) appears verbatim in tender title",
+      "ambiguous": 1
+     }
+    ]
+   },
+   "geometry": {
+    "type": "MultiLineString",
+    "coordinates": [
+     [
+      [
+       77.64,
+       12.97
+      ],
+      [
+       77.645,
+       12.972
+      ],
+      [
+       77.65,
+       12.9735
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "Test Jayanagar Road",
+    "area": "Jayanagar",
+    "city": "Bengaluru",
+    "minor": false,
+    "id": "karnataka:2",
+    "awards": [
+     {
+      "tn": "T/5",
+      "title": "Test Jayanagar Road widening",
+      "contractor": "M/s Alpha Infra - Beta Constructions (JV)",
+      "date": "2024-06-01",
+      "office": "TEST BBMP DIVISION",
+      "amount": null,
+      "basis": "OSM road name (unique in area) appears verbatim in tender title",
+      "ambiguous": 1
+     },
+     {
+      "tn": "T/6",
+      "title": "Test Jayanagar Road widening phase 2",
+      "contractor": "M/s Gamma Infra - Beta Constructions (JV)",
+      "date": "2024-09-01",
+      "office": "TEST BBMP DIVISION",
+      "amount": null,
+      "basis": "OSM road name (unique in area) appears verbatim in tender title",
+      "ambiguous": 1
+     }
+    ]
+   },
+   "geometry": {
+    "type": "MultiLineString",
+    "coordinates": [
+     [
+      [
+       77.58,
+       12.93
+      ],
+      [
+       77.585,
+       12.932
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "Test Hebbal Road",
+    "area": "Hebbal",
+    "city": "Bengaluru",
+    "minor": false,
+    "id": "karnataka:3",
+    "awards": [
+     {
+      "tn": "T/7",
+      "title": "Test Hebbal Road patching",
+      "contractor": "SURESH P",
+      "date": "2024-01-01",
+      "office": "TEST BBMP DIVISION",
+      "amount": null,
+      "basis": "OSM road name (unique in area) appears verbatim in tender title",
+      "ambiguous": 1
+     },
+     {
+      "tn": "T/8",
+      "title": "Test Hebbal Road repair",
+      "contractor": "LAKSHMI N",
+      "date": "2023-01-01",
+      "office": "TEST BBMP DIVISION",
+      "amount": null,
+      "basis": "OSM road name (unique in area) appears verbatim in tender title",
+      "ambiguous": 1
+     }
+    ]
+   },
+   "geometry": {
+    "type": "MultiLineString",
+    "coordinates": [
+     [
+      [
+       77.59,
+       13.035
+      ],
+      [
+       77.595,
+       13.038
+      ]
+     ]
+    ]
+   }
+  }
+ ]
+}

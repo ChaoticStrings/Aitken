@@ -1,0 +1,90 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "Test Baner Road",
+    "area": "Baner",
+    "city": "Pune",
+    "minor": false,
+    "id": "pune:0"
+   },
+   "geometry": {
+    "type": "MultiLineString",
+    "coordinates": [
+     [
+      [
+       73.7868,
+       18.559
+      ],
+      [
+       73.7975,
+       18.5583
+      ],
+      [
+       73.8085,
+       18.5575
+      ]
+     ],
+     [
+      [
+       73.79,
+       18.56
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "Test Aundh Link",
+    "area": "Aundh",
+    "city": "Pune",
+    "minor": false,
+    "id": "pune:1"
+   },
+   "geometry": {
+    "type": "MultiLineString",
+    "coordinates": [
+     [
+      [
+       73.8085,
+       18.5575
+      ],
+      [
+       73.8247,
+       18.5535
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "Test Kothrud Lane",
+    "area": "Kothrud",
+    "city": "Pune",
+    "minor": true,
+    "id": "pune:2"
+   },
+   "geometry": {
+    "type": "MultiLineString",
+    "coordinates": [
+     [
+      [
+       73.81,
+       18.505
+      ],
+      [
+       73.815,
+       18.508
+      ]
+     ]
+    ]
+   }
+  }
+ ]
+}
