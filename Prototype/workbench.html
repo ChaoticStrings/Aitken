@@ -2,7 +2,42 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="theme-color" content="#0A0D12">
+<meta name="mobile-web-app-capable" content="yes">
+<script>
+/* LAYOUT CLASSIFICATION -- runs before first paint, so a phone never flashes the 1100px desktop shell.
+   It only sets four attributes on <html>; every layout decision elsewhere is CSS or the shell script keyed off them.
+     data-layout  compact | desktop   under 1100px wide, or under 500px tall
+     data-orient  portrait | landscape
+     data-sheet   bottom | side       compact only: phone-portrait panels rise from the bottom, anything wider slides in from the right
+     data-input   touch | mouse       the last pointer actually used (so a laptop with a touchscreen flips when you touch it)  */
+(function(){
+  var root=document.documentElement, lastType=null, baseW=0, baseH=0, raf=0;
+  var mqC=matchMedia('(pointer:coarse)'), mqH=matchMedia('(hover:none)');
+  function put(k,v){ var cur=root.getAttribute(k); if(v){ if(cur!==v){ root.setAttribute(k,v); return true; } } else if(cur!==null){ root.removeAttribute(k); return true; } return false; }
+  function classify(){
+    var w=window.innerWidth, h=window.innerHeight;
+    var touch=lastType?(lastType!=='mouse'):(mqC.matches||mqH.matches);
+    /* the on-screen keyboard only ever makes the viewport shorter: on touch devices judge the layout by the tallest height seen at this width,
+       otherwise opening the keyboard in a phone's search box would flip the whole UI to landscape */
+    if(w!==baseW){ baseW=w; baseH=h; } else if(h>baseH){ baseH=h; }
+    var hh=touch?Math.max(h,baseH):h;
+    var compact=(w<1100||hh<500);
+    var ch=false;
+    ch=put('data-layout',compact?'compact':'desktop')||ch;
+    ch=put('data-orient',hh>=w?'portrait':'landscape')||ch;
+    ch=put('data-sheet',compact?((w<720&&hh>=500)?'bottom':'side'):'')||ch;
+    ch=put('data-input',touch?'touch':'mouse')||ch;
+    if(ch) window.dispatchEvent(new CustomEvent('aitken:layout'));
+  }
+  function soon(){ if(raf) return; raf=requestAnimationFrame(function(){ raf=0; classify(); }); }
+  window.addEventListener('resize',soon); window.addEventListener('orientationchange',soon);
+  window.addEventListener('pointerdown',function(e){ var t=e.pointerType==='pen'?'touch':e.pointerType; if(t&&t!==lastType){ lastType=t; classify(); } },{capture:true,passive:true});
+  window.AitkenLayout={ recompute:classify };
+  classify();
+})();
+</script>
 <title>Aitken Workbench</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -625,6 +660,340 @@ body.mode-atlas #atlas{display:block;}
 
 /* toasts (Review's) must clear the region bar and sit above every Atlas panel */
 body.mode-atlas #toast{bottom:76px;z-index:950;}
+
+/* =========================================================================
+   MOBILE / TOUCH -- appended last, so it only ever adds to what is above.
+
+   Three independent axes, all set on <html> by the layout controller:
+     data-layout = compact | desktop    SIZE   (under 1100px wide, or under 500px tall)
+     data-sheet  = bottom | side        WHERE panels slide in from (compact only)
+     data-input  = touch | mouse        the LAST pointer the person used, not the screen size
+   Size decides what is on screen. Input decides how big and how grippy it is.
+   A 1366px iPad keeps the desktop layout but gets finger-sized targets; a narrow
+   desktop window gets the compact layout but keeps mouse-sized ones.
+   ========================================================================= */
+:root{
+  --safe-t:env(safe-area-inset-top,0px);--safe-r:env(safe-area-inset-right,0px);
+  --safe-b:env(safe-area-inset-bottom,0px);--safe-l:env(safe-area-inset-left,0px);
+  --bar-h:46px;--dock-h:58px;--rail-w:64px;--ease-sheet:cubic-bezier(.2,.8,.2,1);
+}
+html,body{overscroll-behavior:none;}          /* no pull-to-refresh / rubber-band chaining out of the app shell */
+@media (max-width:1099px){ body{min-width:0;} }
+@supports (height:100dvh){ #app{height:100dvh;} }
+.compact-only,.sheet-grab,.sheet-x,#dock,#addPop,#scrim{display:none;}
+#mapPane{isolation:isolate;}   /* Leaflet's panes use z-index 400-1000: contain them so sheets and the dock always sit above the map */
+#waveCanvas,#miniCanvas,#waveCanvasWrap,.resizer{touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;}
+#treeBody,#inspBody,#recentList,#recentDropdown,#atSessList,#atSrcList,#atIdxList,#atSearchPop,.at-page,.atc-body,#roughBody,.at-prev{overscroll-behavior:contain;}
+
+/* ---------- input modality: finger-sized targets, no sticky hover ---------- */
+html[data-input=touch]{-webkit-tap-highlight-color:transparent;}
+html[data-input=touch] body{touch-action:manipulation;-webkit-touch-callout:none;}
+html[data-input=touch] :is(#toolbar,#grid,.sheet,#dock,#addPop,#modal,#confirmModal,#roughModal,#recentDropdown) button{min-height:40px;padding:8px 12px;font-size:13px;touch-action:manipulation;}
+html[data-input=touch] :is(#toolbar,#grid,.sheet,#modal,#confirmModal,#roughModal) :is(select,input[type=text],input[type=number]){min-height:40px;font-size:16px;}   /* 16px: iOS zooms the page into any smaller focused field */
+html[data-input=touch] :is(#toolbar,#grid,.sheet,#modal) input[type=checkbox]{width:20px;height:20px;}
+html[data-input=touch] :is(#grid,.sheet) label{min-height:36px;gap:9px;font-size:12px;}
+html[data-input=touch] .tree-row{padding:12px 14px;gap:5px;}
+html[data-input=touch] .tree-tab{padding:13px 4px;font-size:12px;}
+html[data-input=touch] .tune-field input[type=range],html[data-input=touch] .metricRange{min-height:32px;}
+html[data-input=touch] .resizer{position:relative;}
+html[data-input=touch] .resizer::before{content:"";position:absolute;inset:-9px;}
+html[data-input=touch] .field-row input,html[data-input=touch] .field-row select{width:150px;}
+@media (hover:none){
+  button:hover:not(:disabled){background:var(--bg-raised);border-color:var(--line-bright);}
+  button.primary:hover:not(:disabled){background:var(--accent-dim);}
+  button.danger-btn:hover:not(:disabled){background:var(--bg-raised);}
+  button.active-toggle:hover:not(:disabled){background:var(--accent-dim);}
+  button:active:not(:disabled){background:var(--bg-hover);}
+  .tree-row:hover{background:transparent;} .tree-row.selected:hover,.tree-row.multi-selected:hover{background:var(--bg-hover);}
+  #modeSwitch button:hover:not(:disabled){background:transparent;} #modeSwitch button.on:hover:not(:disabled){background:linear-gradient(135deg,#7C4DFF,#2F8FEA);}
+}
+
+/* ---------- compact shell: app bar + stage + dock ---------- */
+html[data-layout=compact]{color-scheme:dark;}
+html[data-layout=compact] body{position:fixed;inset:0;width:100%;height:100%;}
+html[data-layout=compact] #app{padding:0 var(--safe-r) 0 var(--safe-l);}
+html[data-layout=compact] .compact-only{display:inline-flex;}
+html[data-layout=compact] #toolbar{gap:8px;flex-wrap:nowrap;min-height:calc(var(--bar-h) + var(--safe-t));padding:calc(5px + var(--safe-t)) 10px 5px;}
+html[data-layout=compact] #brand{margin-right:0;font-size:0;gap:0;} html[data-layout=compact] #brand .sub{display:none;}
+html[data-layout=compact] #toolbar > .tb-sep,html[data-layout=compact] #toolbar > .spacer,html[data-layout=compact] #autosaveTag{display:none;}
+html[data-layout=compact] #toolbar > .tb-group:not(.keep):not(#grpUndo){display:none;}   /* file / add / nav groups live in the sheets (moved by the controller); this only covers first paint */
+html[data-layout=compact] #modeSwitch{order:2;} html[data-layout=compact] #atlasToolbarChips{order:3;margin-left:auto;}
+html[data-layout=compact] #grpUndo{order:4;gap:2px;}
+html[data-layout=compact] #sessionName{order:5;flex:1;min-width:0;max-width:none;border:0;padding:0 4px;font-size:12px;}
+html[data-layout=compact] #reviewBadge{order:6;padding:7px 9px;}
+html[data-layout=compact] #grpUndo button{font-size:0;padding:0;width:38px;min-height:38px;display:grid;place-items:center;}
+html[data-layout=compact] #grpUndo button::after{content:attr(data-ic);font-size:19px;line-height:1;}
+html[data-layout=compact] #modeSwitch button{padding:7px 12px;min-height:34px;}
+html[data-layout=compact] body.mode-atlas #toolbar #grpUndo{display:none;}
+
+html[data-layout=compact] #grid{display:flex;flex-direction:column;min-height:0;}
+html[data-layout=compact] #wavePane{order:1;flex:1 1 0;min-height:150px;border:0;}
+html[data-layout=compact] #miniPane{order:2;flex:0 0 54px;border:0;border-top:1px solid var(--line);}
+html[data-layout=compact] #rRowMap{order:3;flex:0 0 18px;display:block;cursor:row-resize;}
+html[data-layout=compact] #rRowMap::after{left:50%;right:auto;top:7px;width:44px;height:4px;margin-left:-22px;border-radius:3px;background:var(--line-bright);}
+html[data-layout=compact] #mapPane{order:4;flex:0 0 var(--map-h,34%);min-height:70px;border:0;border-top:1px solid var(--line);}
+html[data-layout=compact] #rColTree,html[data-layout=compact] #rColInsp,html[data-layout=compact] #rRowMini{display:none;}
+html[data-layout=compact] body:not([data-has-session]) :is(#miniPane,#mapPane,#rRowMap){display:none;}
+html[data-layout=compact] #dropzone{padding:20px 18px;}
+html[data-layout=compact] #dropzone .small{max-width:300px;}
+html[data-layout=compact] #recentWrap{max-width:100%;}
+
+/* signal header: a one-line rail (channel + zoom + options). Everything else moves to the Signal sheet. */
+html[data-layout=compact] #waveHead{flex-wrap:nowrap;gap:6px;padding:6px 8px;}
+html[data-layout=compact] #waveHead > .tb-sep,html[data-layout=compact] #waveHead > .spacer,html[data-layout=compact] #waveHead > .pane-title{display:none;}
+html[data-layout=compact] #waveHead #channelSel{flex:1;min-width:0;}
+html[data-layout=compact] #waveHead > :is(#chkRecompute,#chkSeg,#chkTags,#chkSpeed,#speedUnit,#chkCalibLine,#btnTunables,#btnRoughness,#btnSelectVisible){display:none;}
+html[data-layout=compact] #waveHead > label{display:none;}
+html[data-layout=compact] #waveHead button{padding:6px 10px;min-width:38px;}
+html[data-layout=compact] #btnSigOpts{display:grid;place-items:center;font-size:18px;line-height:1;padding:0;width:40px;}
+@media (max-width:560px){ html[data-layout=compact] #sessionName{display:none;} }
+html[data-layout=compact] #addModeHint{top:6px;max-width:calc(100% - 16px);text-align:center;pointer-events:auto;font-size:12px;padding:7px 14px;white-space:nowrap;}
+html[data-layout=compact] #waveTip{font-size:12px;}
+html[data-layout=compact] .sub-panel{padding:10px 12px;}
+html[data-layout=compact] .tune-field{flex-wrap:wrap;}
+html[data-layout=compact] .tune-field input[type=range]{width:100%;flex:1 1 140px;}
+
+/* ---------- dock (bottom bar in portrait, left rail in landscape) ---------- */
+html[data-layout=compact] #dock{display:flex;flex-shrink:0;align-items:stretch;justify-content:space-around;gap:2px;background:var(--bg-panel);border-top:1px solid var(--line);padding:4px 6px calc(4px + var(--safe-b));height:calc(var(--dock-h) + var(--safe-b));position:relative;z-index:80;}
+html[data-layout=compact] body:not([data-has-session]) #dock,html[data-layout=compact] body.mode-atlas #dock{display:none;}
+#dock > button,#dock #dockNav button{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border:0;background:transparent;color:var(--text-dim);border-radius:12px;font-size:10.5px;font-weight:600;letter-spacing:.2px;padding:4px 2px;min-width:52px;position:relative;}
+#dock .di{font-size:19px;line-height:1;}
+#dock > button.on{color:var(--text);background:rgba(79,195,247,.14);}
+#dock > button.on .di{color:var(--accent);}
+#dock #dockNav{display:flex;flex:0 0 auto;gap:2px;align-items:stretch;}
+#dock #dockNav > .tb-group{display:flex;gap:2px;}
+#dock #dockNav button{min-width:46px;font-size:17px;}
+#dock button:disabled{opacity:.3;}
+#dock .dbadge{position:absolute;top:3px;right:calc(50% - 26px);min-width:17px;padding:1px 4px;border-radius:9px;background:var(--accent-dim);color:#fff;font-family:var(--font-mono);font-size:9.5px;font-weight:700;line-height:1.3;text-align:center;}
+#dock .dbadge:empty{display:none;}
+#dock #dockAdd.on{background:var(--accent-dim);color:#fff;}
+html[data-layout=compact] #addPop{position:fixed;z-index:90;left:50%;bottom:calc(var(--dock-h) + var(--safe-b) + 10px);transform:translate(-50%,12px);opacity:0;pointer-events:none;
+  background:var(--bg-raised);border:1px solid var(--line-bright);border-radius:16px;padding:8px;box-shadow:0 16px 44px rgba(0,0,0,.6);transition:transform .22s var(--ease-sheet),opacity .18s;}
+html[data-layout=compact] #addPop.open{display:flex;opacity:1;pointer-events:auto;transform:translate(-50%,0);}
+html[data-layout=compact] #addPop:not(.open){display:flex;visibility:hidden;}
+#addPop .tb-group{display:flex;gap:6px;flex-wrap:nowrap;}
+#addPop button{white-space:nowrap;}
+html[data-layout=compact] #scrim{display:block;position:fixed;inset:0;z-index:60;background:rgba(4,6,10,.55);opacity:0;pointer-events:none;transition:opacity .25s;}
+html[data-layout=compact] #scrim.on{opacity:1;pointer-events:auto;}
+
+/* landscape: the dock becomes a left rail so the stage keeps its height */
+html[data-layout=compact][data-orient=landscape]{--dock-h:0px;}
+html[data-layout=compact][data-orient=landscape] #app{display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);}
+html[data-layout=compact][data-orient=landscape] #toolbar{grid-column:1/-1;grid-row:1;}
+html[data-layout=compact][data-orient=landscape] :is(#grid,#atlas){grid-column:2;grid-row:2;min-width:0;}
+html[data-layout=compact][data-orient=landscape] #dock{grid-column:1;grid-row:2;flex-direction:column;justify-content:flex-start;width:var(--rail-w);height:auto;padding:6px 4px;border-top:0;border-right:1px solid var(--line);overflow-y:auto;}
+html[data-layout=compact][data-orient=landscape] #dock > button,html[data-layout=compact][data-orient=landscape] #dock #dockNav button{flex:0 0 auto;min-height:52px;min-width:0;}
+html[data-layout=compact][data-orient=landscape] #dock #dockNav,html[data-layout=compact][data-orient=landscape] #dock #dockNav > .tb-group{flex-direction:column;}
+html[data-layout=compact][data-orient=landscape] #addPop{left:calc(var(--rail-w) + var(--safe-l) + 10px);bottom:auto;top:50%;transform:translate(-12px,-50%);}
+html[data-layout=compact][data-orient=landscape] #addPop.open{transform:translate(0,-50%);}
+html[data-layout=compact][data-orient=landscape] #addPop .tb-group{flex-direction:column;}
+html[data-layout=compact][data-orient=landscape] #dock .dbadge{right:6px;}
+/* landscape + roomy: stage is two columns, wave + minimap left, map right */
+html[data-layout=compact][data-orient=landscape] #grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(200px,34%);grid-template-rows:minmax(0,1fr) 46px;}
+html[data-layout=compact][data-orient=landscape] #wavePane{grid-column:1;grid-row:1;order:0;}
+html[data-layout=compact][data-orient=landscape] #miniPane{grid-column:1;grid-row:2;order:0;flex:none;}
+html[data-layout=compact][data-orient=landscape] #mapPane{grid-column:2;grid-row:1/3;order:0;flex:none;border-top:0;border-left:1px solid var(--line);}
+html[data-layout=compact][data-orient=landscape] #rRowMap{display:none;}
+
+/* ---------- sheets: Items (#treePane), Inspector (#inspPane), Signal, Session ---------- */
+html[data-layout=compact] .sheet{position:fixed;z-index:70;display:flex;flex-direction:column;min-height:0;background:var(--bg-panel);border:1px solid var(--line-bright);
+  box-shadow:0 -12px 40px rgba(0,0,0,.55);will-change:transform;transition:transform .36s var(--ease-sheet),visibility 0s;overflow:hidden;}
+html[data-layout=compact] .sheet.dragging{transition:none;}
+html[data-layout=compact] .sheet[data-detent=closed]{visibility:hidden;transition:transform .3s var(--ease-sheet),visibility 0s .3s;pointer-events:none;}
+html[data-layout=compact] .sheet-grab{display:flex;flex:0 0 auto;align-items:center;justify-content:center;height:22px;touch-action:none;cursor:grab;}
+html[data-layout=compact] .sheet-grab i{width:40px;height:4px;border-radius:3px;background:var(--line-bright);}
+html[data-layout=compact] .sheet-x{display:grid;place-items:center;flex:0 0 auto;width:38px;min-height:38px !important;padding:0 !important;margin-left:auto;background:transparent;border:0;color:var(--text-dim);font-size:15px;}
+html[data-layout=compact] .sheet > :is(.pane-head,#treeTabs){touch-action:none;}
+html[data-layout=compact] #treeBody,html[data-layout=compact] #inspBody,html[data-layout=compact] .sheet-body{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y;}
+html[data-layout=compact] .sheet-head{display:flex;align-items:center;gap:8px;padding:2px 8px 6px 16px;flex:0 0 auto;touch-action:none;}
+html[data-layout=compact] .sheet-title{font-size:12px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text-dim);}
+html[data-layout=compact] .sheet-body{padding:4px 14px calc(18px + var(--safe-b));}
+html[data-layout=compact] .sheet-body .tb-group{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;}
+html[data-layout=compact] .sheet-body .tb-group > button{flex:1 1 140px;}
+html[data-layout=compact] .sheet-sec{margin:6px 0 14px;}
+html[data-layout=compact] .sheet-sec > h4{margin:0 0 8px;font-size:10px;letter-spacing:.7px;text-transform:uppercase;color:var(--text-faint);font-weight:700;}
+html[data-layout=compact] .sheet-body .sheet-switches{display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;}
+html[data-layout=compact] .sheet-body .sheet-switches label{justify-content:flex-start;background:var(--bg-raised);border:1px solid var(--line);border-radius:10px;padding:6px 10px;}
+html[data-layout=compact] .sheet-body .sheet-switches select{min-height:40px;}
+html[data-layout=compact] .sheet-body .sheet-row{display:flex;gap:8px;align-items:center;margin-top:8px;}
+html[data-layout=compact] .sheet-body .sheet-row > button{flex:1;}
+html[data-layout=compact] .sheet-body .sub-panel{border:1px solid var(--line);border-radius:12px;margin-top:10px;}
+html[data-layout=compact] .sheet-body #recentDropdown{position:static !important;width:auto !important;margin-top:8px;box-shadow:none !important;}
+html[data-layout=compact] .sheet-body #btnRecent{width:100%;}
+html[data-layout=compact] .sheet-body > .tb-group > div{flex:1 1 140px;display:flex;}
+
+html[data-layout=compact][data-sheet=bottom] .sheet{left:0;right:0;top:calc(var(--bar-h) + var(--safe-t) + 8px);bottom:calc(var(--dock-h) + var(--safe-b));border-radius:20px 20px 0 0;border-bottom:0;}
+html[data-layout=compact][data-sheet=side] .sheet{top:calc(var(--bar-h) + var(--safe-t));bottom:calc(var(--dock-h) + var(--safe-b));right:var(--safe-r);left:auto;width:min(410px,50vw);border-radius:16px 0 0 16px;border-right:0;box-shadow:-12px 0 40px rgba(0,0,0,.5);}
+html[data-layout=compact][data-sheet=side] .sheet-grab{display:none;}
+html[data-layout=compact][data-sheet=side] .sheet-head{padding-top:8px;}
+html[data-layout=compact][data-sheet=side] #treePane > #treeTabs,html[data-layout=compact][data-sheet=side] #inspPane > .pane-head{padding-top:6px;}
+html[data-layout=compact] .sheet > .pane-head{padding:2px 8px 4px 16px;}
+html[data-layout=compact] .sheet#treePane,html[data-layout=compact] .sheet#inspPane{border-left:1px solid var(--line-bright);}
+html[data-layout=compact] #treePane #treeTabs{align-items:stretch;}
+html[data-layout=compact] #treePane #treeTabs .tree-tab{display:grid;place-items:center;}
+html[data-layout=compact] #inspPane .insp-actions button{flex:1 1 130px;}
+html[data-layout=compact] #inspBody{padding:10px 16px calc(16px + var(--safe-b));}
+html[data-layout=compact] .field-row input,html[data-layout=compact] .field-row select{width:150px;}
+
+/* modals become bottom sheets on small screens */
+html[data-layout=compact] :is(#modalOverlay,#confirmOverlay){align-items:flex-end;}
+html[data-layout=compact] :is(#modal,#confirmModal){width:100%;max-width:520px;border-radius:20px 20px 0 0;padding:20px 18px calc(18px + var(--safe-b));border-bottom:0;animation:sheetIn .28s var(--ease-sheet);}
+html[data-layout=compact] #roughOverlay{align-items:stretch;}
+html[data-layout=compact] #roughModal{width:100%;max-height:none;height:100%;border-radius:0;border:0;padding-top:var(--safe-t);}
+html[data-layout=compact] #roughStats{grid-template-columns:1fr 1fr;}
+html[data-layout=compact] #roughBody{padding:12px 14px calc(16px + var(--safe-b));}
+html[data-layout=compact] #toast{bottom:calc(var(--dock-h) + var(--safe-b) + 14px);max-width:calc(100vw - 28px);text-align:center;}
+html[data-layout=compact][data-orient=landscape] #toast{bottom:calc(14px + var(--safe-b));}
+@keyframes sheetIn{from{transform:translateY(28px);opacity:.5;}to{transform:none;opacity:1;}}
+
+/* touch: Review canvas affordances */
+html[data-input=touch] #waveCanvas{cursor:default;}
+@media (prefers-reduced-motion:reduce){ .sheet,#addPop,#scrim{transition-duration:.01ms !important;} #modal,#confirmModal{animation:none !important;} }
+.gesture-list{margin:0;display:grid;grid-template-columns:auto 1fr;gap:8px 14px;font-size:12px;line-height:1.5;color:var(--text-dim);}
+.gesture-list dt{font-weight:700;color:var(--text);} .gesture-list dd{margin:0;}
+
+/* =========================================================================
+   MOBILE / TOUCH -- ATLAS
+   Atlas is a full-bleed map with panels floating over it, so "responsive" means re-deciding which panel is
+   where, not squeezing them:
+     phone, upright (data-sheet=bottom)   sidebar -> a bottom sheet (peek / half / full). Search floats on top as a pill, regions become a
+                                          chip rail under it, the 4 stats ride in the sheet's peek strip, the legend hides behind a key
+                                          button. Selecting something raises the detail card as a SECOND sheet in the same slot.
+     phone sideways / tablet (data-sheet=side)  the laptop's floating panels, narrower, with the sidebar stepping aside while a card is open.
+     any touch screen (data-input=touch)  finger-sized targets, no backdrop blur (re-blurring under every glass panel each frame of a pan was the
+                                          biggest source of jank), kebab menus instead of hover-only row buttons.
+   ========================================================================= */
+
+/* Atlas mode hides Review's stage. The compact/landscape Review rules (display:flex / display:grid) out-rank `body.mode-atlas #grid`, so say it again, louder. */
+html[data-layout] body.mode-atlas #grid{display:none !important;}
+
+/* ---------- any touch device: perf + targets ---------- */
+html[data-input=touch] #atlas *{backdrop-filter:none !important;-webkit-backdrop-filter:none !important;}
+html[data-input=touch] #atlas{--at-panel:rgba(12,16,28,.95);--at-panel-hi:rgba(22,28,46,.985);}
+html[data-input=touch] #atlas[data-theme=light]{--at-panel:rgba(255,255,255,.965);--at-panel-hi:rgba(255,255,255,.99);}
+html[data-input=touch] #atlas button{min-height:40px;padding:8px 12px;font-size:13px;touch-action:manipulation;}
+html[data-input=touch] #atlas .at-mini{min-height:36px;padding:6px 12px !important;font-size:12px !important;}
+html[data-input=touch] #atlas :is(input[type=text],input[type=search],select){min-height:44px;font-size:16px;}   /* 16px: iOS zooms the page into any smaller focused field */
+html[data-input=touch] #atlas .at-iconbtn{width:42px;height:42px;}
+html[data-input=touch] .at-tab{padding:14px 4px !important;font-size:11.5px !important;}
+html[data-input=touch] .at-seg button{min-height:40px;}
+html[data-input=touch] .at-chip{min-height:38px;padding:8px 12px !important;font-size:12px !important;}
+html[data-input=touch] .at-switch{min-height:48px;padding:9px 2px;font-size:13.5px;}
+html[data-input=touch] .at-sw{width:46px;height:28px;} html[data-input=touch] .at-sw::after{width:22px;height:22px;left:3px;top:3px;}
+html[data-input=touch] .at-switch.on .at-sw::after{transform:translateX(18px);}
+html[data-input=touch] .at-slider{min-height:44px;gap:12px;} html[data-input=touch] .at-slider .lab{width:92px;}
+html[data-input=touch] #atlas input[type=range]{height:34px;background:transparent;}
+html[data-input=touch] #atlas input[type=range]::-webkit-slider-runnable-track{height:6px;border-radius:6px;background:var(--at-line2);}
+html[data-input=touch] #atlas input[type=range]::-webkit-slider-thumb{width:26px;height:26px;margin-top:-10px;border-width:4px;}
+html[data-input=touch] #atlas input[type=range]::-moz-range-thumb{width:18px;height:18px;}
+html[data-input=touch] .at-row{min-height:54px;padding:8px 4px 8px 10px;gap:12px;content-visibility:auto;contain-intrinsic-size:auto 54px;}
+html[data-input=touch] .at-cb{width:24px;height:24px;border-radius:8px;}
+html[data-input=touch] .at-row.sel .at-cb::after{width:11px;height:6px;}
+html[data-input=touch] .at-rt{font-size:13px;} html[data-input=touch] .at-rs{font-size:11px;}
+html[data-input=touch] .at-list{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;touch-action:pan-y;}
+html[data-input=touch] .at-list.tall{max-height:min(44vh,360px);}
+html[data-input=touch] .at-row.focus{outline:none;}              /* the keyboard focus ring is noise after a tap */
+.hint-touch{display:none;} html[data-input=touch] .hint-touch{display:inline;} html[data-input=touch] .hint-mouse{display:none;}
+html[data-input=touch] .at-racts{display:none;}                 /* hover-only buttons are invisible on touch yet still tappable: replaced by the kebab */
+.at-kebab{display:none;}
+html[data-input=touch] #atlas .at-kebab{display:grid;place-items:center;flex:0 0 auto;width:42px;min-height:42px;padding:0;font-size:22px;line-height:1;border-color:transparent;background:transparent;color:var(--at-dim);}
+html[data-input=touch] .at-az{flex-wrap:nowrap;overflow-x:auto;gap:0;margin:0 -2px 8px;scrollbar-width:none;overscroll-behavior-x:contain;}
+html[data-input=touch] .at-az::-webkit-scrollbar{display:none;}
+html[data-input=touch] #atlas .at-az button{flex:0 0 36px;width:36px;min-height:40px;padding:0 !important;font-size:12.5px !important;}
+html[data-input=touch] .at-region{padding:13px 14px;}
+html[data-input=touch] #atMap .leaflet-control-zoom{display:none;}                  /* pinch is the gesture */
+html[data-input=touch] #atMap .leaflet-control-attribution{font-size:10.5px;padding:2px 6px;}
+html[data-input=touch] .leaflet-tile{transition-duration:.18s;}
+html[data-input=touch] #atMap{touch-action:none;-webkit-touch-callout:none;}
+html[data-input=touch] #atRegionBar button{min-height:38px;}
+html[data-input=touch] .atc-x{width:44px !important;height:44px;right:2px !important;top:2px !important;padding:0 !important;}
+html[data-input=touch] .atc-ev,html[data-input=touch] .atc-aw{min-height:44px;}
+html[data-input=touch] #atSearchPop .at-sr{min-height:50px;padding:9px 12px;}
+
+/* ---------- row action sheet (the kebab) ---------- */
+#atAct{display:none;position:absolute;inset:0;z-index:800;}
+#atAct.on{display:block;}
+#atAct .at-act-scrim{position:absolute;inset:0;background:rgba(3,5,12,.58);animation:atFadeIn .2s both;}
+#atAct .at-act-box{position:absolute;left:8px;right:8px;bottom:calc(8px + var(--safe-b));padding:8px;border-radius:20px;display:flex;flex-direction:column;gap:4px;animation:sheetIn .26s var(--ease-sheet);}
+@media (min-width:720px){ #atAct .at-act-box{left:auto;right:16px;width:360px;} }
+#atAct .at-act-title{padding:8px 12px 6px;font-weight:800;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+#atAct .at-act-title small{display:block;font-weight:500;font-size:11px;color:var(--at-dim);margin-top:2px;font-family:var(--font-mono);overflow:hidden;text-overflow:ellipsis;}
+#atAct .at-act-box button{display:flex;align-items:center;gap:14px;justify-content:flex-start;min-height:52px;padding:0 14px;font-size:14px;font-weight:600;border-radius:12px;background:transparent;border-color:transparent;text-align:left;}
+#atAct .at-act-box button .ic{width:22px;text-align:center;font-size:17px;color:var(--at-dim);}
+#atAct .at-act-box button.danger{color:var(--at-bad);} #atAct .at-act-box button.danger .ic{color:var(--at-bad);}
+#atAct .at-act-box button.cancel{justify-content:center;margin-top:4px;background:var(--at-input);border-color:var(--at-line);}
+
+/* ---------- control stack (key + fit): phone upright only ---------- */
+#atCtl{display:none;}
+html[data-layout=compact][data-sheet=bottom] #atCtl{display:flex;position:absolute;z-index:500;right:10px;bottom:30px;flex-direction:column;gap:8px;transform:translate3d(0,calc(var(--sv,0) * -1px),0);will-change:transform;}
+html[data-layout=compact][data-sheet=bottom] #atlas #atCtl button{width:46px;height:46px;min-height:46px;padding:0;border-radius:15px;display:grid;place-items:center;background:var(--at-panel-hi);box-shadow:var(--at-shadow);}
+#atCtl svg{width:22px;height:22px;stroke:var(--at-text);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}
+html[data-layout=compact][data-sheet=bottom] #atlas #atCtl #atLegend{position:absolute;display:none;left:auto;right:56px;bottom:0;width:min(232px,calc(100vw - 96px));z-index:2;transition:none;}
+html[data-layout=compact][data-sheet=bottom] #atlas #atCtl.legend-open #atLegend{display:block;animation:atPop .16s ease-out;}
+html[data-layout=compact][data-sheet=bottom] #atlas #atCtl #atLegend.min .lg-body{display:block;}
+html[data-layout=compact][data-sheet=bottom] #atlas #atCtl #atKey[aria-expanded=true]{border-color:var(--at-ds);}
+
+/* ---------- compact, both sheet modes ---------- */
+html[data-layout=compact] #atlas #atEmpty{width:min(430px,calc(100% - 32px));padding:24px 20px;}
+html[data-layout=compact] #atModal .box{width:min(720px,calc(100% - 20px));max-height:calc(100% - 20px);padding:18px 16px;background:var(--at-solid);}
+html[data-layout=compact] .at-form{grid-template-columns:1fr;gap:4px;}
+html[data-layout=compact] .at-form label{margin-top:8px;}
+html[data-layout=compact] .at-mactions{position:sticky;bottom:-18px;padding:12px 0 2px;background:var(--at-solid);}
+html[data-layout=compact] #atModal .box .at-mactions button{flex:1;}
+
+/* ---------- compact, phone upright: sheets ---------- */
+html[data-layout=compact][data-sheet=bottom] #atSideOpen,html[data-layout=compact][data-sheet=bottom] #atCollapse{display:none !important;}
+html[data-layout=compact][data-sheet=bottom] #atlas #atSide{left:0;right:0;top:62px;bottom:0;width:auto;background:var(--at-solid);border-radius:20px 20px 0 0;border-bottom:0;z-index:515;padding-bottom:var(--safe-b);box-shadow:0 -10px 36px rgba(0,0,0,.45);will-change:transform;transition:transform .36s var(--ease-sheet),opacity .2s,visibility 0s;}
+html[data-layout=compact][data-sheet=bottom] #atlas.side-collapsed #atSide{opacity:1;pointer-events:auto;}   /* a desktop "hide sidebar" preference must not hide the phone's only navigation */
+html[data-layout=compact][data-sheet=bottom] #atlas #atSide.covered{opacity:0;visibility:hidden;pointer-events:none;transition:transform .36s var(--ease-sheet),opacity .18s,visibility 0s .18s;}
+html[data-layout=compact][data-sheet=bottom] #atlas #atSide.dragging,html[data-layout=compact][data-sheet=bottom] #atlas #atCard.dragging{transition:none;}
+html[data-layout=compact][data-sheet=bottom] #atSide .at-head{padding:0 12px 8px 14px;touch-action:none;}
+html[data-layout=compact][data-sheet=bottom] #atSide .at-tabs{touch-action:none;}
+html[data-layout=compact][data-sheet=bottom] #atSide .at-grab{height:24px;}
+html[data-layout=compact][data-sheet=bottom] #atSide .at-pages{border-top:0;}
+html[data-layout=compact][data-sheet=bottom] #atSide .at-page{padding:12px 14px calc(22px + var(--safe-b));}
+html[data-layout=compact][data-sheet=bottom] #atSide #atHud{position:static;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;padding:0 12px 10px;}
+html[data-layout=compact][data-sheet=bottom] #atSide #atHud .at-stat{min-width:0;padding:6px 8px;border-radius:11px;background:var(--at-input);border:1px solid var(--at-line);box-shadow:none;}
+html[data-layout=compact][data-sheet=bottom] #atSide #atHud .at-stat .v{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+html[data-layout=compact][data-sheet=bottom] #atSide .at-title small{display:none;}
+html[data-layout=compact][data-sheet=bottom] #atSide #atHud .at-stat .k{font-size:8.5px;letter-spacing:.35px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+
+/* the detail card: a second sheet in the same slot */
+html[data-layout=compact][data-sheet=bottom] #atlas #atCard{display:flex;left:0;right:0;top:62px;bottom:0;width:auto;background:var(--at-solid);max-height:none;min-height:0;padding-top:22px;border-radius:20px 20px 0 0;border-bottom:0;z-index:520;animation:none;touch-action:none;will-change:transform;box-shadow:0 -10px 36px rgba(0,0,0,.45);transition:transform .36s var(--ease-sheet),visibility 0s;}
+html[data-layout=compact][data-sheet=bottom] #atCard::before{content:"";position:absolute;top:9px;left:50%;width:40px;height:4px;margin-left:-20px;border-radius:3px;background:var(--at-line2);}
+html[data-layout=compact][data-sheet=bottom] #atCard[data-detent=closed]{visibility:hidden;pointer-events:none;transition:transform .3s var(--ease-sheet),visibility 0s .3s;}
+html[data-layout=compact][data-sheet=bottom] #atCard .atc-head{touch-action:none;padding-top:4px;}
+html[data-layout=compact][data-sheet=bottom] #atCard .atc-body{flex:1 1 auto;min-height:0;touch-action:pan-y;padding-bottom:calc(20px + var(--safe-b));}
+
+/* search floats over the map; regions and the focus chip stack under it */
+html[data-layout=compact][data-sheet=bottom] #atlas > .at-search{position:absolute;z-index:530;top:10px;left:10px;right:10px;padding:0;}
+html[data-layout=compact][data-sheet=bottom] #atlas > .at-search input{height:46px;border-radius:23px;padding-left:46px;padding-right:14px;background:var(--at-panel-hi);border:1px solid var(--at-line2);box-shadow:var(--at-shadow);}
+html[data-layout=compact][data-sheet=bottom] #atlas > .at-search::before{left:19px;top:15px;}
+html[data-layout=compact][data-sheet=bottom] #atlas > .at-search::after{left:29px;top:29px;}
+html[data-layout=compact][data-sheet=bottom] #atlas > .at-search kbd{display:none;}
+html[data-layout=compact][data-sheet=bottom] #atlas > .at-search #atSearchPop{left:0;right:0;top:54px;max-height:min(52dvh,380px);}
+html[data-layout=compact][data-sheet=bottom] #atlas #atRegionBar{top:64px;bottom:auto;left:10px;right:auto;transform:none;max-width:calc(100% - 20px);padding:4px;border-radius:24px;scrollbar-width:none;overscroll-behavior-x:contain;touch-action:pan-x;z-index:480;}
+html[data-layout=compact][data-sheet=bottom] #atRegionBar::-webkit-scrollbar{display:none;}
+html[data-layout=compact][data-sheet=bottom] #atRegionBar button{flex:0 0 auto;padding:6px 14px !important;min-height:36px;}
+html[data-layout=compact][data-sheet=bottom] #atlas #atFocusChip{top:112px;left:10px;max-width:calc(100% - 20px);}
+html[data-layout=compact][data-sheet=bottom] #atlas #atHud{right:auto;}
+html[data-layout=compact][data-sheet=bottom] #atlas #atEmpty{left:50%;top:40%;}
+/* the map's own bottom controls (scale, attribution) ride above whatever sheet is showing; attribution must stay visible */
+html[data-layout=compact][data-sheet=bottom] #atlas #atMap .leaflet-bottom{transform:translate3d(0,calc(var(--sv,0) * -1px),0);}
+html[data-layout=compact][data-sheet=bottom] #atlas #atMap .leaflet-bottom.leaflet-left{left:0;}
+html[data-layout=compact][data-sheet=bottom] body.mode-atlas #toast{top:calc(var(--bar-h) + var(--safe-t) + 116px);bottom:auto;}
+html[data-layout=compact][data-sheet=bottom] #atModal{align-items:flex-end;}
+html[data-layout=compact][data-sheet=bottom] #atModal .box{width:100%;max-height:90%;border-radius:20px 20px 0 0;padding-bottom:calc(18px + var(--safe-b));animation:sheetIn .28s var(--ease-sheet);}
+
+/* ---------- compact, sideways phone / tablet: floating panels, narrower ---------- */
+html[data-layout=compact][data-sheet=side] #atlas #atSide{width:min(372px,50vw);top:8px;bottom:8px;left:8px;}
+html[data-layout=compact][data-sheet=side] #atlas #atCard{width:min(336px,46vw);right:8px;}
+html[data-layout=compact][data-sheet=side][data-orient=landscape] #atlas #atCard{top:8px;bottom:8px;max-height:none;}
+html[data-layout=compact][data-sheet=side][data-orient=landscape] #atlas:has(#atCard.on) #atHud{display:none;}
+html[data-layout=compact][data-sheet=side] #atlas #atHud{top:8px;right:8px;}
+html[data-layout=compact][data-sheet=side] #atlas #atRegionBar{bottom:8px;}
+
+@media (prefers-reduced-motion:reduce){ #atAct *,#atCard,#atSide{transition-duration:.01ms !important;animation-duration:.01ms !important;} }
 </style>
 </head>
 <body>
@@ -637,7 +1006,7 @@ body.mode-atlas #toast{bottom:76px;z-index:950;}
     </div>
     <div class="tb-group keep" id="atlasToolbarChips"><span id="atDbChip"></span></div>
     <div class="tb-sep"></div>
-    <div class="tb-group">
+    <div class="tb-group" id="grpFile">
       <button id="btnOpen">Open session (.zip)</button>
       <input type="file" id="fileInput" accept=".zip">
       <div style="position:relative;">
@@ -648,20 +1017,20 @@ body.mode-atlas #toast{bottom:76px;z-index:950;}
       <button id="btnClear" disabled>Clear workbench</button>
     </div>
     <div class="tb-sep"></div>
-    <div class="tb-group">
-      <button id="btnUndo" disabled title="Ctrl+Z">Undo</button>
-      <button id="btnRedo" disabled title="Ctrl+Shift+Z">Redo</button>
+    <div class="tb-group" id="grpUndo">
+      <button id="btnUndo" disabled title="Ctrl+Z" aria-label="Undo" data-ic="&#8630;">Undo</button>
+      <button id="btnRedo" disabled title="Ctrl+Shift+Z" aria-label="Redo" data-ic="&#8631;">Redo</button>
     </div>
     <div class="tb-sep"></div>
-    <div class="tb-group">
+    <div class="tb-group" id="grpAdd">
       <button id="btnAddPoint" disabled title="Place a point tag">+ Point tag</button>
       <button id="btnAddRange" disabled title="Mark a range tag">+ Range tag</button>
       <button id="btnAddSegment" disabled title="Draw a new segment">+ Segment</button>
     </div>
     <div class="tb-sep"></div>
-    <div class="tb-group">
-      <button id="btnPrevItem" disabled title="Previous segment [">&#9664;</button>
-      <button id="btnNextItem" disabled title="Next segment ]">&#9654;</button>
+    <div class="tb-group" id="grpNav">
+      <button id="btnPrevItem" disabled title="Previous segment [" aria-label="Previous segment">&#9664;</button>
+      <button id="btnNextItem" disabled title="Next segment ]" aria-label="Next segment">&#9654;</button>
     </div>
     <div class="spacer"></div>
     <div id="autosaveTag"></div>
@@ -675,11 +1044,13 @@ body.mode-atlas #toast{bottom:76px;z-index:950;}
     <div class="resizer row" id="rRowMini"></div>
     <div class="resizer row" id="rRowMap"></div>
 
-    <div class="pane" id="treePane">
+    <div class="pane sheet" id="treePane">
+      <div class="sheet-grab" aria-hidden="true"><i></i></div>
       <div id="treeTabs">
         <div class="tree-tab active" data-tab="segments">Segments <span class="count" id="cSeg">0</span></div>
         <div class="tree-tab" data-tab="labels">Tags <span class="count" id="cTag">0</span></div>
         <div class="tree-tab" data-tab="warnings">Warnings <span class="count" id="cWarn">0</span></div>
+        <button class="sheet-x" aria-label="Close list">&#10005;</button>
       </div>
       <div id="treeBody"><div class="tree-empty">Open a session to see detected segments, tags and data warnings here.</div></div>
     </div>
@@ -734,6 +1105,7 @@ body.mode-atlas #toast{bottom:76px;z-index:950;}
           <button id="btnZoomOut" title="Zoom out">&minus;</button>
           <button id="btnZoomIn" title="Zoom in">+</button>
           <button id="btnZoomFit" title="Fit whole session">Fit</button>
+          <button id="btnSigOpts" class="compact-only" title="Signal options" aria-label="Signal options">&#9881;</button>
           <div class="tb-sep"></div>
           <button id="btnSelectVisible" title="Select all segments/tags in the current view (Shift-drag to select a range)">Select visible</button>
         </div>
@@ -754,8 +1126,9 @@ body.mode-atlas #toast{bottom:76px;z-index:950;}
       <div id="mapFallback">GPS track map appears once a session with GPS data is loaded.</div>
     </div>
 
-    <div class="pane" id="inspPane">
-      <div class="pane-head"><span class="pane-title" id="inspTitle">Inspector</span></div>
+    <div class="pane sheet" id="inspPane">
+      <div class="sheet-grab" aria-hidden="true"><i></i></div>
+      <div class="pane-head"><span class="pane-title" id="inspTitle">Inspector</span><button class="sheet-x" aria-label="Close inspector">&#10005;</button></div>
       <div id="inspBody"><div class="insp-empty">Select a segment, tag, or point on the waveform to inspect it here. With nothing open, this shows session-level statistics.</div></div>
     </div>
 
@@ -767,6 +1140,7 @@ body.mode-atlas #toast{bottom:76px;z-index:950;}
     <button id="atSideOpen" class="at-glass" title="Show sidebar">&#9776;</button>
 
     <div id="atSide" class="at-glass">
+      <div class="sheet-grab at-grab" aria-hidden="true"><i></i></div>
       <div class="at-head">
         <div class="at-mark"></div>
         <div class="at-title">ATLAS<small>every road you've ridden</small></div>
@@ -797,7 +1171,7 @@ body.mode-atlas #toast{bottom:76px;z-index:950;}
             </div>
             <div class="at-row2">
               <button class="at-mini" id="atSessAll">All</button><button class="at-mini" id="atSessNone">None</button><button class="at-mini" id="atSessInv">Invert</button>
-              <span class="at-hint" style="margin-left:auto;font-size:10px">drag to multi-select</span>
+              <span class="at-hint" style="margin-left:auto;font-size:10px"><span class="hint-mouse">drag to multi-select</span><span class="hint-touch">hold, then drag</span></span>
             </div>
             <div class="at-list tall" id="atSessList" role="listbox" aria-multiselectable="true" tabindex="0" data-empty="No sessions yet. Click “Load zips” or drop session .zip files anywhere on the map."></div>
             <input type="file" id="atZipInput" accept=".zip,application/zip" multiple hidden>
@@ -871,10 +1245,50 @@ body.mode-atlas #toast{bottom:76px;z-index:950;}
     <div id="atLegend" class="at-glass"></div>
     <div id="atRegionBar" class="at-glass"></div>
     <div id="atCard" class="at-glass"></div>
+    <div id="atCtl">
+      <button id="atKey" class="at-glass" aria-label="Map key" aria-expanded="false" title="Map key"><svg viewBox="0 0 24 24"><path d="M4 6h3M4 12h3M4 18h3"/><path d="M11 6h9M11 12h9M11 18h9"/></svg></button>
+      <button id="atFit" class="at-glass" aria-label="Fit to my rides" title="Fit to my rides"><svg viewBox="0 0 24 24"><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4"/><circle cx="12" cy="12" r="2.2"/></svg></button>
+    </div>
+    <div id="atAct" aria-hidden="true"></div>
     <div id="atDrop"><div class="box"><div class="big">Drop session zips or contractor datasets</div><div class="small">.zip bundles become sessions &middot; .geojson / .json / .csv become contractor sources</div></div></div>
     <div id="atModal"><div class="box at-glass" id="atModalBox"></div></div>
   </div>
+
+  <nav id="dock" aria-label="Review actions">
+    <div id="dockNav"></div>
+    <button id="dockAdd" aria-haspopup="true" aria-expanded="false"><svg class="di" viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg><span>Tag</span></button>
+    <button id="dockItems"><svg class="di" viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg><span>Items</span><i class="dbadge" id="dockCount"></i></button>
+    <button id="dockInspect"><svg class="di" viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg><span>Inspect</span></button>
+    <button id="dockMore"><svg class="di" viewBox="0 0 24 24" width="21" height="21" fill="currentColor"><circle cx="5" cy="12" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="19" cy="12" r="1.9"/></svg><span>More</span></button>
+  </nav>
 </div>
+<div id="addPop" role="menu" aria-label="Add to session"></div>
+<div id="scrim"></div>
+
+<section class="sheet" id="sheetSignal" aria-label="Signal options">
+  <div class="sheet-grab" aria-hidden="true"><i></i></div>
+  <div class="sheet-head"><span class="sheet-title">Signal</span><button class="sheet-x" aria-label="Close">&#10005;</button></div>
+  <div class="sheet-body" id="signalBody">
+    <div class="sheet-sec"><h4>Show on the waveform</h4><div class="sheet-switches" id="signalSwitches"></div></div>
+    <div class="sheet-sec"><h4>Tools</h4><div class="sheet-row" id="signalTools"></div></div>
+  </div>
+</section>
+<section class="sheet" id="sheetMenu" aria-label="Session menu">
+  <div class="sheet-grab" aria-hidden="true"><i></i></div>
+  <div class="sheet-head"><span class="sheet-title">Session</span><button class="sheet-x" aria-label="Close">&#10005;</button></div>
+  <div class="sheet-body">
+    <div class="sheet-sec" id="menuSession"></div>
+    <div class="sheet-sec"><h4>Touch gestures</h4>
+      <dl class="gesture-list">
+        <dt>Tap</dt><dd>Select a segment or tag. Tap empty signal to read the value under your finger.</dd>
+        <dt>Drag</dt><dd>Pan. With a segment selected, drag its white handles to resize it.</dd>
+        <dt>Pinch</dt><dd>Zoom around your fingers. Two fingers moving together pan as well.</dd>
+        <dt>Long-press</dt><dd>Add a segment or tag to a multi-selection. Long-press empty signal, then drag, to box-select.</dd>
+        <dt>Double-tap</dt><dd>Fit the whole session.</dd>
+      </dl>
+    </div>
+  </div>
+</section>
 
 <div id="modalOverlay">
   <div id="modal">
@@ -1034,6 +1448,14 @@ const COMFORT_BANDS = {
 };
 
 const UNDO_LIMIT = 100;
+
+// ---- device / input helpers (the layout controller in <head> keeps <html data-input> up to date) ----
+const isTouchUI = ()=> document.documentElement.dataset.input==='touch';
+const isCompactUI = ()=> document.documentElement.dataset.layout==='compact';
+const REDUCED_MOTION = matchMedia('(prefers-reduced-motion: reduce)');
+const FONT_MONO = (getComputedStyle(document.documentElement).getPropertyValue('--font-mono')||'monospace').trim();   // read once: it never changes, and reading computed style per segment per frame forces a style recalc
+const FONT_UI = (getComputedStyle(document.documentElement).getPropertyValue('--font-ui')||'sans-serif').trim();
+function haptic(ms){ try{ if(navigator.vibrate) navigator.vibrate(ms||8); }catch(e){} }
 
 
 /* =========================================================================
@@ -1630,9 +2052,11 @@ function activateSession(data){
   closeRecentDropdown();
   renderMetricPanel();
   renderTunablesPanel();
+  S._miniCache = null;
   initMap();
   resizeCanvases();
   renderAll();
+  window.dispatchEvent(new CustomEvent('aitken:session',{detail:{loaded:true}}));
 }
 function detectionTunablesFromConfig(cfg){
   if(!cfg) return Object.assign({}, DEFAULT_DETECTION_TUNABLES);
@@ -1815,7 +2239,7 @@ function setView(a,b){
   a = clamp(a, -0.5, S.totalDur); b = clamp(b, 0, S.totalDur+0.5);
   if(b-a < 0.05) b = a+0.05;
   S.view.start = a; S.view.end = b;
-  requestDraw(); drawMinimap();
+  requestDraw();
 }
 
 /* =========================================================================
@@ -1823,6 +2247,12 @@ function setView(a,b){
    ========================================================================= */
 
 function renderInspector(){
+  renderInspectorInner();
+  const multi=S.multi.segIds.size+S.multi.labelIds.size;
+  const mode = !S.loaded ? 'session' : multi ? 'multi' : (S.selection.type||'session');
+  window.dispatchEvent(new CustomEvent('aitken:inspector',{detail:{mode, id:S.selection.id, count:multi}}));
+}
+function renderInspectorInner(){
   const body = document.getElementById('inspBody');
   const title = document.getElementById('inspTitle');
   if(!S.loaded){ title.textContent='Inspector'; body.innerHTML='<div class="insp-empty">Select a segment, tag, or point on the waveform to inspect it here. With nothing open, this shows session-level statistics.</div>'; return; }
@@ -1843,7 +2273,7 @@ function renderBulkInspector(body){
   body.innerHTML = `
     <div class="field-group">
       <div class="bulk-count">${segIds.length+labelIds.length}</div>
-      <div class="bulk-sub">${segIds.length} segment(s), ${labelIds.length} tag(s) selected \u00B7 Shift-click or shift-drag to adjust</div>
+      <div class="bulk-sub">${segIds.length} segment(s), ${labelIds.length} tag(s) selected \u00B7 ${isTouchUI()?'Tap items to add or remove, tap empty signal to clear':'Shift-click or shift-drag to adjust'}</div>
     </div>
     ${labelIds.length ? `
     <div class="field-group">
@@ -2119,7 +2549,7 @@ function renderRangeInspector(body){
    ========================================================================= */
 
 const wave = document.getElementById('waveCanvas');
-const wctx = wave.getContext('2d');
+const wctx = wave.getContext('2d',{alpha:false});
 const wrap = document.getElementById('waveCanvasWrap');
 const tip = document.getElementById('waveTip');
 let waveDpr = 1;
@@ -2127,12 +2557,14 @@ let waveDpr = 1;
 function resizeCanvases(){
   [ [wave, wctx, wrap], [mini, mctx, document.getElementById('miniPane')] ].forEach(([cv,ctx,container])=>{
     const rect = container.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = Math.min(window.devicePixelRatio || 1, isTouchUI() ? 2 : 4);   // a 3x phone gains nothing visible from a 3x trace, and pays 2.25x the fill
     cv.width = Math.max(1, Math.floor(rect.width*dpr));
     cv.height = Math.max(1, Math.floor(rect.height*dpr));
     cv.style.width = rect.width+'px'; cv.style.height = rect.height+'px';
     ctx.setTransform(dpr,0,0,dpr,0,0);
+    cv._dpr = dpr;
   });
+  S._miniCache = null;
   requestDraw(); drawMinimap();
 }
 window.addEventListener('resize', resizeCanvases);
@@ -2159,68 +2591,67 @@ if(typeof ResizeObserver !== 'undefined'){
   let saved = {};
   try{ saved = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); }catch(e){}
   const sizes = { tree: saved.tree||270, insp: saved.insp||330, mini: saved.mini||96, map: saved.map||220 };
+  let compactMap = saved.cmap || 0;                      // px height of the map pane in the compact layout (0 = CSS default)
 
   function applySizes(){
     gridEl.style.gridTemplateColumns = sizes.tree+'px 6px 1fr 6px '+sizes.insp+'px';
     gridEl.style.gridTemplateRows = '1fr 6px '+sizes.mini+'px 6px '+sizes.map+'px';
+    if(compactMap) gridEl.style.setProperty('--map-h', compactMap+'px');
   }
   applySizes();
 
-  function persist(){ try{ localStorage.setItem(LS_KEY, JSON.stringify(sizes)); }catch(e){} }
+  function persist(){ try{ localStorage.setItem(LS_KEY, JSON.stringify(Object.assign({},sizes,{cmap:compactMap}))); }catch(e){} }
   function afterResize(){ resizeCanvases(); if(map) map.invalidateSize(); }
 
-  function bindCol(id, key, min, max, fromRight){
+  // one pointer-driven drag for every splitter: capture keeps it alive off the handle, and it works with a finger
+  function bindDrag(id, start, move){
     const el = document.getElementById(id);
-    el.addEventListener('mousedown', (e)=>{
+    el.addEventListener('pointerdown', (e)=>{
+      if(e.pointerType==='mouse' && e.button!==0) return;
       e.preventDefault();
-      const startX = e.clientX, start = sizes[key];
+      try{ el.setPointerCapture(e.pointerId); }catch(_){}
+      const ctx = start(e);
       el.classList.add('active');
-      function move(ev){
-        const dx = ev.clientX-startX;
-        sizes[key] = clamp(start + (fromRight?-dx:dx), min, max);
-        applySizes(); afterResize();
-      }
-      function up(){ document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',up); el.classList.remove('active'); persist(); }
-      document.addEventListener('mousemove',move); document.addEventListener('mouseup',up);
+      const mv = (ev)=>{ if(ev.pointerId===e.pointerId) move(ctx, ev); };
+      const up = (ev)=>{ if(ev.pointerId!==e.pointerId) return;
+        el.removeEventListener('pointermove',mv); el.removeEventListener('pointerup',up); el.removeEventListener('pointercancel',up);
+        el.classList.remove('active'); persist(); };
+      el.addEventListener('pointermove',mv); el.addEventListener('pointerup',up); el.addEventListener('pointercancel',up);
+    });
+  }
+  function bindCol(id, key, min, max, fromRight){
+    bindDrag(id, (e)=>({startX:e.clientX, start:sizes[key]}), (c,ev)=>{
+      const dx = ev.clientX-c.startX;
+      sizes[key] = clamp(c.start + (fromRight?-dx:dx), min, max);
+      applySizes(); afterResize();
     });
   }
   function bindRow(id, key, min, max){
-    const el = document.getElementById(id);
-    el.addEventListener('mousedown', (e)=>{
-      e.preventDefault();
-      const startY = e.clientY, start = sizes[key];
-      el.classList.add('active');
-      function move(ev){
-        const dy = ev.clientY-startY;
-        sizes[key] = clamp(start - dy, min, max);
-        applySizes(); afterResize();
-      }
-      function up(){ document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',up); el.classList.remove('active'); persist(); }
-      document.addEventListener('mousemove',move); document.addEventListener('mouseup',up);
+    bindDrag(id, (e)=>({startY:e.clientY, start:sizes[key]}), (c,ev)=>{
+      const dy = ev.clientY-c.startY;
+      sizes[key] = clamp(c.start - dy, min, max);
+      applySizes(); afterResize();
     });
   }
   // rRowMap sits between two fixed-height tracks (mini, map) -- neither is
   // the flexible row, so dragging it must transfer height between the two
   // rather than only touching one (which would silently resize the
   // waveform row instead of the row the user is actually looking at).
+  // In the compact layout the same handle simply resizes the map pane against the waveform.
   function bindRowTransfer(id, keyAbove, keyBelow, min, max){
-    const el = document.getElementById(id);
-    el.addEventListener('mousedown', (e)=>{
-      e.preventDefault();
-      const startY = e.clientY, startAbove = sizes[keyAbove], startBelow = sizes[keyBelow];
-      el.classList.add('active');
-      function move(ev){
-        const dy = ev.clientY-startY;
-        let above = startAbove+dy, below = startBelow-dy;
-        if(above<min){ below-=(min-above); above=min; }
-        if(above>max){ below+=(above-max); above=max; }
-        if(below<min){ above-=(min-below); below=min; }
-        if(below>max){ above+=(below-max); below=max; }
-        sizes[keyAbove]=above; sizes[keyBelow]=below;
-        applySizes(); afterResize();
+    bindDrag(id, (e)=>({startY:e.clientY, startAbove:sizes[keyAbove], startBelow:sizes[keyBelow], compact:isCompactUI(), startMap:document.getElementById('mapPane').offsetHeight, gridH:gridEl.clientHeight}), (c,ev)=>{
+      const dy = ev.clientY-c.startY;
+      if(c.compact){
+        compactMap = Math.round(clamp(c.startMap-dy, 72, c.gridH-54-18-140));
+        gridEl.style.setProperty('--map-h', compactMap+'px'); afterResize(); return;
       }
-      function up(){ document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',up); el.classList.remove('active'); persist(); }
-      document.addEventListener('mousemove',move); document.addEventListener('mouseup',up);
+      let above = c.startAbove+dy, below = c.startBelow-dy;
+      if(above<min){ below-=(min-above); above=min; }
+      if(above>max){ below+=(above-max); above=max; }
+      if(below<min){ above-=(min-below); below=min; }
+      if(below>max){ above+=(below-max); below=max; }
+      sizes[keyAbove]=above; sizes[keyBelow]=below;
+      applySizes(); afterResize();
     });
   }
   bindCol('rColTree','tree',180,520,false);
@@ -2307,7 +2738,7 @@ function getSimSegments(){
 }
 
 let drawPending=false;
-function requestDraw(){ if(drawPending) return; drawPending=true; requestAnimationFrame(()=>{ drawPending=false; drawWave(); }); }
+function requestDraw(){ if(drawPending) return; drawPending=true; requestAnimationFrame(()=>{ drawPending=false; drawWave(); drawMinimap(); }); }
 
 function drawWave(){
   const rect = wrap.getBoundingClientRect();
@@ -2317,6 +2748,7 @@ function drawWave(){
   if(!S.loaded) return;
 
   PAD.r = S.showSpeed ? 38 : 14;
+  PAD.l = isCompactUI() ? 38 : 52;                       // narrower y-axis gutter on a phone: more of the screen is signal
   const plotW = W-PAD.l-PAD.r, plotH = H-PAD.t-PAD.b;
   const {start:vs, end:ve} = S.view;
   const sn = S.sensor;
@@ -2333,10 +2765,8 @@ function drawWave(){
 
   // y-range from visible samples
   let ymin=Infinity, ymax=-Infinity;
-  for(let i=i0;i<i1;i++){
-    const v=series[i]; if(isFinite(v)){ if(v<ymin)ymin=v; if(v>ymax)ymax=v; }
-    if(recSeries){ const v2=recSeries[i]; if(isFinite(v2)){ if(v2<ymin)ymin=v2; if(v2>ymax)ymax=v2; } }
-  }
+  { const r=minMaxRange(series,i0,i1); ymin=r.mn; ymax=r.mx; }
+  if(recSeries){ const r2=minMaxRange(recSeries,i0,i1); if(r2.mn<ymin) ymin=r2.mn; if(r2.mx>ymax) ymax=r2.mx; }
   if(!isFinite(ymin)||!isFinite(ymax)){ ymin=-1; ymax=1; }
   if(ymax-ymin < 0.5){ const c=(ymax+ymin)/2; ymin=c-0.5; ymax=c+0.5; }
   const headroom = (ymax-ymin)*0.12; ymin-=headroom; ymax+=headroom;
@@ -2346,7 +2776,7 @@ function drawWave(){
   S._mapX=mapX; S._mapY=mapY; S._ymin=ymin; S._ymax=ymax; S._vs=vs; S._ve=ve; S._plotH=plotH; S._plotW=plotW;
 
   // grid
-  wctx.strokeStyle = '#1B212B'; wctx.lineWidth=1; wctx.font='10px '+getComputedStyle(document.body).getPropertyValue('--font-mono');
+  wctx.strokeStyle = '#1B212B'; wctx.lineWidth=1; wctx.font='10px '+FONT_MONO;
   wctx.fillStyle = '#566072';
   const yTicks=5;
   for(let i=0;i<=yTicks;i++){
@@ -2386,11 +2816,12 @@ function drawWave(){
       wctx.fillRect(x0, PAD.t, Math.max(1,x1-x0), plotH);
       wctx.strokeStyle = col; wctx.lineWidth = isSel?2:1;
       wctx.strokeRect(x0, PAD.t, Math.max(1,x1-x0), plotH);
-      wctx.fillStyle = col; wctx.font='bold 10px '+getComputedStyle(document.body).getPropertyValue('--font-mono');
+      wctx.fillStyle = col; wctx.font='bold 10px '+FONT_MONO;
       wctx.fillText('M'+Math.round(m), x0+4, PAD.t+12);
       if(isSel){
         wctx.fillStyle='#fff';
         [x0,x1].forEach(hx=>{ wctx.fillRect(hx-2, PAD.t, 4, plotH); });
+        if(isTouchUI()){ [x0,x1].forEach(hx=>{ wctx.beginPath(); wctx.arc(hx, PAD.t+plotH/2, 9, 0, Math.PI*2); wctx.fill(); wctx.strokeStyle='#0D1117'; wctx.lineWidth=2; wctx.stroke(); }); }   // visible grips: the finger needs something to grab
       }
       if(isMulti){
         wctx.strokeStyle='#ffffff'; wctx.lineWidth=2; wctx.setLineDash([4,3]);
@@ -2413,7 +2844,7 @@ function drawWave(){
       wctx.fillStyle='rgba(255,255,255,0.55)';
       wctx.fillRect(x0, laneTop, Math.max(1,x1-x0), laneH);
     });
-    wctx.fillStyle='#ffffff'; wctx.font='9px '+getComputedStyle(document.body).getPropertyValue('--font-mono');
+    wctx.fillStyle='#ffffff'; wctx.font='9px '+FONT_MONO;
     wctx.fillText('simulated segments', PAD.l+2, laneTop+laneH+9);
   }
 
@@ -2425,7 +2856,7 @@ function drawWave(){
       const y=mapY(v);
       wctx.strokeStyle=color; wctx.setLineDash([6,4]); wctx.lineWidth=1.3;
       wctx.beginPath(); wctx.moveTo(PAD.l,y); wctx.lineTo(W-PAD.r,y); wctx.stroke(); wctx.setLineDash([]);
-      wctx.fillStyle=color; wctx.font='10px '+getComputedStyle(document.body).getPropertyValue('--font-mono');
+      wctx.fillStyle=color; wctx.font='10px '+FONT_MONO;
       wctx.fillText(label, W-PAD.r-4-wctx.measureText(label).width, y-4);
     };
     if(S.sessionConfig && isFinite(S.sessionConfig.calibratedShortStdThreshold)){
@@ -2451,7 +2882,7 @@ function drawWave(){
       wctx.beginPath();
       wctx.moveTo(x0,laneY-6); wctx.lineTo(x0,laneY); wctx.lineTo(x1,laneY); wctx.lineTo(x1,laneY-6);
       wctx.stroke();
-      wctx.fillStyle=col; wctx.font='10px '+getComputedStyle(document.body).getPropertyValue('--font-ui');
+      wctx.fillStyle=col; wctx.font='10px '+FONT_UI;
       wctx.fillText(r.label, x0+3, laneY-9);
     });
     // point tags
@@ -2466,7 +2897,7 @@ function drawWave(){
       if(isMulti){ wctx.strokeStyle='#fff'; wctx.beginPath(); wctx.arc(x, PAD.t+8, 8, 0, Math.PI*2); wctx.lineWidth=2; wctx.stroke(); }
       wctx.fillStyle=col;
       wctx.beginPath(); wctx.arc(x, PAD.t+8, isSel?5:4, 0, Math.PI*2); wctx.fill();
-      wctx.font='10px '+getComputedStyle(document.body).getPropertyValue('--font-ui');
+      wctx.font='10px '+FONT_UI;
       wctx.fillText(l.label, x+6, PAD.t+11);
     });
   }
@@ -2487,7 +2918,7 @@ function drawWave(){
     for(let i=gi0;i<gi1;i++){ const v=S.gps.speed[i]; if(isFinite(v) && v*conv>smax) smax=v*conv; }
     smax = Math.max(smax*1.15, 1);
     const mapYs = v => PAD.t + (1-(v-0)/(smax-0))*plotH;
-    wctx.fillStyle='#C9A94B'; wctx.font='10px '+getComputedStyle(document.body).getPropertyValue('--font-mono');
+    wctx.fillStyle='#C9A94B'; wctx.font='10px '+FONT_MONO;
     const sTicks=4;
     for(let i=0;i<=sTicks;i++){
       const v=smax*i/sTicks, y=mapYs(v);
@@ -2505,11 +2936,14 @@ function drawWave(){
   }
 
   // legend
-  wctx.font='11px '+getComputedStyle(document.body).getPropertyValue('--font-ui');
+  wctx.font='11px '+FONT_UI;
   const cm = channelDisplayMeta(S.channel);
-  wctx.fillStyle='#4FC3F7'; wctx.fillText('\u2014 '+cm.name+' ('+cm.unit+')', W-PAD.r-260, PAD.t+2);
-  if(recSeries){ wctx.fillStyle='#B39DDB'; wctx.fillText('\u2014 recomputed (JS DSP)', W-PAD.r-260, PAD.t+16); }
-  if(S.showSpeed && S.gps.n){ wctx.fillStyle='#E0C168'; wctx.fillText('\u2014 Speed ('+(S.speedUnit==='kph'?'km/h':'m/s')+')', W-PAD.r-260, PAD.t+(recSeries?30:16)); }
+  const narrow = W<560, lx = narrow ? W-PAD.r-4 : W-PAD.r-260;
+  if(narrow) wctx.textAlign='right';
+  wctx.fillStyle='#4FC3F7'; wctx.fillText('\u2014 '+cm.name+' ('+cm.unit+')', lx, PAD.t+2);
+  if(recSeries){ wctx.fillStyle='#B39DDB'; wctx.fillText('\u2014 recomputed (JS DSP)', lx, PAD.t+16); }
+  if(S.showSpeed && S.gps.n){ wctx.fillStyle='#E0C168'; wctx.fillText('\u2014 Speed ('+(S.speedUnit==='kph'?'km/h':'m/s')+')', lx, PAD.t+(recSeries?30:16)); }
+  wctx.textAlign='left';
 
   // drag feedback: new-segment rectangle (blue, matches segment styling) vs.
   // marquee multiselect (white dashed, a "selection" affordance, not data)
@@ -2555,11 +2989,40 @@ function drawTrace(series, i0, i1, mapX, mapY, color, width, dashed){
   wctx.stroke();
   if(dashed) wctx.setLineDash([]);
 }
+/* Min/max pyramid. A 30-minute ride is 200k+ samples; zoomed all the way out, scanning them every
+   frame (to find the y-range, then to draw) is what makes a fling stutter on a phone. Three precomputed
+   block levels (16 / 128 / 1024 samples) turn that into a few thousand reads, with an exactly equal result:
+   blocks only stand in for samples that lie wholly inside the range, and the ragged ends are read raw.
+   Cached per series object, so a recompute or a new metric simply builds its own. */
+const PYR_BLOCKS = [16,128,1024];
+const pyrCache = new WeakMap();
+function getPyramid(series){
+  let p = pyrCache.get(series); if(p) return p;
+  const n=series.length, levels=[]; let prev=null, prevB=1;
+  for(const B of PYR_BLOCKS){
+    const nb=Math.ceil(n/B), mn=new Float64Array(nb).fill(Infinity), mx=new Float64Array(nb).fill(-Infinity);
+    if(!prev){ for(let i=0;i<n;i++){ const v=series[i]; if(v-v!==0) continue; const b=(i/B)|0; if(v<mn[b])mn[b]=v; if(v>mx[b])mx[b]=v; } }
+    else { const r=B/prevB; for(let j=0;j<prev.mn.length;j++){ const b=(j/r)|0; if(prev.mn[j]<mn[b])mn[b]=prev.mn[j]; if(prev.mx[j]>mx[b])mx[b]=prev.mx[j]; } }
+    const lv={B,mn,mx}; levels.push(lv); prev=lv; prevB=B;
+  }
+  p={levels}; pyrCache.set(series,p); return p;
+}
+function minMaxRange(series,i0,i1){                       // finite min/max over [i0,i1)
+  let mn=Infinity, mx=-Infinity; const n=i1-i0;
+  let k=-1; if(n>=4096){ for(let j=PYR_BLOCKS.length-1;j>=0;j--) if(PYR_BLOCKS[j]*8<=n){ k=j; break; } }
+  if(k<0){ for(let i=i0;i<i1;i++){ const v=series[i]; if(v-v!==0) continue; if(v<mn)mn=v; if(v>mx)mx=v; } return {mn,mx}; }
+  const lv=getPyramid(series).levels[k], B=lv.B, b0=Math.ceil(i0/B), b1=Math.floor(i1/B), head=Math.min(i1,b0*B), tail=Math.max(head,b1*B);
+  for(let i=i0;i<head;i++){ const v=series[i]; if(v-v!==0) continue; if(v<mn)mn=v; if(v>mx)mx=v; }
+  for(let b=b0;b<b1;b++){ if(lv.mn[b]<mn)mn=lv.mn[b]; if(lv.mx[b]>mx)mx=lv.mx[b]; }
+  for(let i=tail;i<i1;i++){ const v=series[i]; if(v-v!==0) continue; if(v<mn)mn=v; if(v>mx)mx=v; }
+  return {mn,mx};
+}
 // Draws every sample when zoomed in close enough for it to matter; once
 // there are more than ~2 samples per pixel, switches to a peak-preserving
 // min/max envelope (one vertical stroke per pixel column) instead -- this
 // is what keeps a 200k+ sample, 30+ minute session responsive to pan/zoom,
 // without discarding a single raw sample from memory or from export.
+// When there are many samples per pixel the envelope is read from the pyramid instead of the raw series.
 function drawTraceAdaptive(series, i0, i1, mapX, mapY, color, width, dashed){
   const n = i1-i0;
   const plotPx = Math.max(1, Math.round(S._plotW));
@@ -2575,11 +3038,19 @@ function drawTraceAdaptive(series, i0, i1, mapX, mapY, color, width, dashed){
     wctx.moveTo(x, mapY(bmin));
     wctx.lineTo(x, mapY(bmax));
   };
-  for(let i=i0;i<i1;i++){
-    const v=series[i]; if(!isFinite(v)) continue;
-    const x = mapX(tSec[i]);
+  const add=(x,lo,hi)=>{
     const b = Math.floor(x-PAD.l);
-    if(b!==bucket){ flush(); bucket=b; bmin=v; bmax=v; } else { if(v<bmin)bmin=v; if(v>bmax)bmax=v; }
+    if(b!==bucket){ flush(); bucket=b; bmin=lo; bmax=hi; } else { if(lo<bmin)bmin=lo; if(hi>bmax)bmax=hi; }
+  };
+  const spp = n/plotPx; let k=-1;
+  for(let j=PYR_BLOCKS.length-1;j>=0;j--) if(PYR_BLOCKS[j]<=spp/2){ k=j; break; }
+  if(k<0){
+    for(let i=i0;i<i1;i++){ const v=series[i]; if(!isFinite(v)) continue; add(mapX(tSec[i]), v, v); }
+  } else {
+    const lv=getPyramid(series).levels[k], B=lv.B, b0=Math.ceil(i0/B), b1=Math.floor(i1/B), head=Math.min(i1,b0*B), tail=Math.max(head,b1*B), last=tSec.length-1;
+    for(let i=i0;i<head;i++){ const v=series[i]; if(!isFinite(v)) continue; add(mapX(tSec[i]), v, v); }
+    for(let b=b0;b<b1;b++){ if(lv.mn[b]===Infinity) continue; add(mapX(tSec[Math.min(last,b*B+(B>>1))]), lv.mn[b], lv.mx[b]); }
+    for(let i=tail;i<i1;i++){ const v=series[i]; if(!isFinite(v)) continue; add(mapX(tSec[i]), v, v); }
   }
   flush();
   wctx.stroke();
@@ -2588,108 +3059,84 @@ function drawTraceAdaptive(series, i0, i1, mapX, mapY, color, width, dashed){
 
 /* ---- waveform interaction ---- */
 
-function segHandleHit(x, y, plotH){
+/* ---- hit testing ----
+   The mouse keeps its original, pixel-precise slop. A finger (or pen) gets finger-sized targets:
+   handles 24px, tags 18px, and segments are padded out to a 24px minimum width so a 5px-wide
+   segment can still be tapped. */
+const HIT = { handle:{mouse:7, touch:24}, tag:{mouse:10, touch:18}, range:{mouse:7, touch:18}, segMin:24 };
+function segHandleHit(x, y, plotH, touch){
   if(S.selection.type!=='segment') return null;
   const seg = S.segments.find(s=>s.id===S.selection.id); if(!seg) return null;
   const x0=S._mapX(seg.startSec), x1=S._mapX(seg.startSec+seg.durSec);
-  if(y<PAD.t-4 || y>PAD.t+plotH+4) return null;
-  if(Math.abs(x-x0)<7) return {seg, edge:'start'};
-  if(Math.abs(x-x1)<7) return {seg, edge:'end'};
+  const yPad = touch?24:4, tol = touch?HIT.handle.touch:HIT.handle.mouse;
+  if(y<PAD.t-yPad || y>PAD.t+plotH+yPad) return null;
+  const d0=Math.abs(x-x0), d1=Math.abs(x-x1);
+  if(d0<tol || d1<tol) return d0<=d1 ? {seg, edge:'start'} : {seg, edge:'end'};
   return null;
 }
-function rangeHandleHit(x,y){
+function rangeHandleHit(x,y,touch){
   if(S.selection.type!=='range') return null;
   const r = buildRanges().find(x2=>x2.id===S.selection.id); if(!r) return null;
-  const laneY = PAD.t + S._plotH - 16;
-  if(Math.abs(y-laneY)>8) return null;
-  const x0=S._mapX(r.startSec);
-  if(Math.abs(x-x0)<7) return {range:r, edge:'start'};
-  if(r.endLabelId!=null){
-    const x1=S._mapX(r.endSec);
-    if(Math.abs(x-x1)<7) return {range:r, edge:'end'};
-  }
+  const laneY = PAD.t + S._plotH - 16, tol = touch?HIT.range.touch:HIT.range.mouse;
+  if(Math.abs(y-laneY)>(touch?24:8)) return null;
+  const d0=Math.abs(x-S._mapX(r.startSec));
+  const d1=r.endLabelId!=null ? Math.abs(x-S._mapX(r.endSec)) : Infinity;
+  if(d0<tol || d1<tol) return d0<=d1 ? {range:r, edge:'start'} : {range:r, edge:'end'};
   return null;
 }
-function hitSegment(x,y){
+function hitSegment(x,y,touch){
   if(!S.showSegments) return null;
-  for(const seg of S.segments){
-    const x0=S._mapX(seg.startSec), x1=S._mapX(seg.startSec+seg.durSec);
-    if(x>=x0 && x<=x1 && y>=PAD.t && y<=PAD.t+S._plotH) return seg;
+  if(y<PAD.t || y>PAD.t+S._plotH) return null;
+  if(!touch){
+    for(const seg of S.segments){
+      const x0=S._mapX(seg.startSec), x1=S._mapX(seg.startSec+seg.durSec);
+      if(x>=x0 && x<=x1) return seg;
+    }
+    return null;
   }
-  return null;
+  // touch: nearest target wins; a hit inside the real box beats one in the padding, and the narrower of two nested boxes is the more specific one
+  let best=null, bk=Infinity;
+  for(const seg of S.segments){
+    const x0=S._mapX(seg.startSec), x1=S._mapX(seg.startSec+seg.durSec), w=x1-x0, pad=Math.max(0,(HIT.segMin-w)/2);
+    if(x<x0-pad || x>x1+pad) continue;
+    const key=(x<x0?x0-x:(x>x1?x-x1:0))*1000 + w;
+    if(key<bk){ bk=key; best=seg; }
+  }
+  return best;
 }
-function hitPointTag(x,y){
+function hitPointTag(x,y,touch){
   if(!S.showTags) return null;
-  let best=null, bestD=10;
+  let best=null, bestD=touch?HIT.tag.touch:HIT.tag.mouse;
   S.labels.filter(l=>l.kind==='POINT').forEach(l=>{
-    const lx = S._mapX(l.tSec);
-    const d = Math.abs(lx-x);
-    if(d<bestD && y<PAD.t+22){ best=l; bestD=d; }
+    const d = Math.abs(S._mapX(l.tSec)-x);
+    if(d<bestD && (touch || y<PAD.t+22)){ best=l; bestD=d; }
   });
   return best;
 }
+function hitRangeLane(x,y,touch){
+  const laneY=PAD.t+S._plotH-16; if(Math.abs(y-laneY)>(touch?20:7)) return null;
+  return buildRanges().find(r=>{ const x0=S._mapX(r.startSec), x1=S._mapX(r.endSec), p=touch?8:0; return x>=x0-p && x<=x1+p; }) || null;
+}
 
-wave.addEventListener('mousedown', (e)=>{
-  if(!S.loaded) return;
-  const rect = wrap.getBoundingClientRect();
-  const x = e.clientX-rect.left, y = e.clientY-rect.top;
-  const tSec = S._vs + (x-PAD.l)/S._plotW*(S._ve-S._vs);
+/* ---- pointer gestures on the waveform ----
+   ONE set of Pointer Events serves mouse, pen and finger.
+   Mouse:  press acts immediately (exactly the old behaviour, so desktop is unchanged).
+   Touch:  a press is only a *candidate* until we know what the finger means:
+             moves past the slop            -> pan (and, on release, fling with momentum)
+             lifts quickly                  -> tap: select / toggle / read-out
+             holds still ~0.4 s             -> long-press: multi-select (Shift-click) or box-select (Shift-drag)
+             second finger                  -> pinch zoom + two-finger pan
+           A drag that starts on a selected segment's handle, or in "add segment" mode,
+           is direct manipulation and starts immediately. */
+const TAP_SLOP=9, LONG_MS=430, DTAP_MS=320, DTAP_PX=34, FLING_TAU=360, FLING_MIN=0.12, FLING_MAX=6;
+const G = { ptrs:new Map(), g:null, pinch:null, lastTap:null, press:0, tipTimer:0, fling:null, rect:null };
+const nowMs = ()=>performance.now();
+function timeAtX(x){ return S._vs + (x-PAD.l)/S._plotW*(S._ve-S._vs); }
+function stopFling(){ if(G.fling){ cancelAnimationFrame(G.fling.raf); G.fling=null; } }
+function hideTip(){ clearTimeout(G.tipTimer); tip.style.display='none'; }
 
-  if(S.addMode==='point'){
-    openAddTagModal('point', tSec);
-    return;
-  }
-  if(S.addMode==='rangeStart'){
-    S.rangeStartSec = clamp(tSec,0,S.totalDur); S.addMode='rangeEnd'; updateAddHint(); requestDraw(); return;
-  }
-  if(S.addMode==='rangeEnd'){
-    const a = S.rangeStartSec, b = clamp(tSec,0,S.totalDur);
-    S.addMode=null; updateAddHint();
-    openAddTagModal('range', Math.min(a,b), Math.max(a,b));
-    return;
-  }
-  if(S.addMode==='segment'){
-    S.drag = {type:'newSegment', aSec:clamp(tSec,0,S.totalDur), bSec:clamp(tSec,0,S.totalDur)};
-    return;
-  }
-
-  if(e.shiftKey){
-    const seg = hitSegment(x,y);
-    if(seg){ toggleMultiSegment(seg.id); return; }
-    const ptTag = hitPointTag(x,y);
-    if(ptTag){ toggleMultiLabel(ptTag.id); return; }
-    S.drag = {type:'marquee', aSec:clamp(tSec,0,S.totalDur), bSec:clamp(tSec,0,S.totalDur)};
-    return;
-  }
-
-  const sh = segHandleHit(x,y,S._plotH);
-  if(sh){ pushUndo(); S.drag={type:'segHandle', seg:sh.seg, edge:sh.edge}; return; }
-  const rh = rangeHandleHit(x,y);
-  if(rh){ pushUndo(); const lbl = rh.edge==='start'? S.labels.find(l=>l.id===rh.range.startLabelId) : S.labels.find(l=>l.id===rh.range.endLabelId); S.drag={type:'rangeHandle', label:lbl}; return; }
-
-  const ptTag = hitPointTag(x,y);
-  if(ptTag){ selectItem('label', ptTag.id); S.drag={type:'dragLabel', label:ptTag, moved:false}; return; }
-
-  const seg = hitSegment(x,y);
-  if(seg){ selectItem('segment', seg.id); return; }
-
-  const rngHit = (()=>{ const laneY=PAD.t+S._plotH-16; if(Math.abs(y-laneY)>7) return null;
-    return buildRanges().find(r=>{ const x0=S._mapX(r.startSec), x1=S._mapX(r.endSec); return x>=x0&&x<=x1; }); })();
-  if(rngHit){ selectItem('range', rngHit.id); return; }
-
-  if(S.multi.segIds.size || S.multi.labelIds.size) clearMulti();
-  S.drag = {type:'pan', startX:x, viewStart:S.view.start, viewEnd:S.view.end};
-});
-
-window.addEventListener('mousemove', (e)=>{
-  if(!S.loaded || !S.drag){
-    if(S.loaded) hoverTip(e);
-    return;
-  }
-  const rect = wrap.getBoundingClientRect();
-  const x = e.clientX-rect.left, y = e.clientY-rect.top;
+function dragTo(x,y){            // shared by mouse and touch direct-manipulation drags
   const tSec = clamp(S._vs + (x-PAD.l)/S._plotW*(S._ve-S._vs), 0, S.totalDur);
-
   if(S.drag.type==='pan'){
     const dx = x-S.drag.startX;
     const span = S.drag.viewEnd-S.drag.viewStart;
@@ -2709,9 +3156,8 @@ window.addEventListener('mousemove', (e)=>{
   } else if(S.drag.type==='marquee'){
     S.drag.bSec = tSec; requestDraw();
   }
-});
-
-window.addEventListener('mouseup', ()=>{
+}
+function finishDrag(){
   if(!S.drag) return;
   if(S.drag.type==='segHandle'){ recomputeSegmentStats(S.drag.seg); renderInspector(); renderTree(); }
   else if(S.drag.type==='dragLabel'){ if(S.drag.moved) pushUndo(); }
@@ -2731,7 +3177,191 @@ window.addEventListener('mouseup', ()=>{
   }
   S.drag=null;
   renderAll();
+}
+function addModeTap(tSec){
+  if(S.addMode==='point'){ openAddTagModal('point', tSec); return true; }
+  if(S.addMode==='rangeStart'){ S.rangeStartSec = clamp(tSec,0,S.totalDur); S.addMode='rangeEnd'; updateAddHint(); requestDraw(); return true; }
+  if(S.addMode==='rangeEnd'){
+    const a = S.rangeStartSec, b = clamp(tSec,0,S.totalDur);
+    S.addMode=null; updateAddHint();
+    openAddTagModal('range', Math.min(a,b), Math.max(a,b));
+    return true;
+  }
+  return false;
+}
+
+/* mouse: the original mousedown, unchanged in behaviour */
+function pressMouse(x,y,e){
+  const tSec = S._vs + (x-PAD.l)/S._plotW*(S._ve-S._vs);
+  if(addModeTap(tSec)) return;
+  if(S.addMode==='segment'){
+    S.drag = {type:'newSegment', aSec:clamp(tSec,0,S.totalDur), bSec:clamp(tSec,0,S.totalDur)};
+    return;
+  }
+  if(e.shiftKey){
+    const seg = hitSegment(x,y,false);
+    if(seg){ toggleMultiSegment(seg.id); return; }
+    const ptTag = hitPointTag(x,y,false);
+    if(ptTag){ toggleMultiLabel(ptTag.id); return; }
+    S.drag = {type:'marquee', aSec:clamp(tSec,0,S.totalDur), bSec:clamp(tSec,0,S.totalDur)};
+    return;
+  }
+  const sh = segHandleHit(x,y,S._plotH,false);
+  if(sh){ pushUndo(); S.drag={type:'segHandle', seg:sh.seg, edge:sh.edge}; return; }
+  const rh = rangeHandleHit(x,y,false);
+  if(rh){ pushUndo(); const lbl = rh.edge==='start'? S.labels.find(l=>l.id===rh.range.startLabelId) : S.labels.find(l=>l.id===rh.range.endLabelId); S.drag={type:'rangeHandle', label:lbl}; return; }
+  const ptTag = hitPointTag(x,y,false);
+  if(ptTag){ selectItem('label', ptTag.id); S.drag={type:'dragLabel', label:ptTag, moved:false}; return; }
+  const seg = hitSegment(x,y,false);
+  if(seg){ selectItem('segment', seg.id); return; }
+  const rngHit = hitRangeLane(x,y,false);
+  if(rngHit){ selectItem('range', rngHit.id); return; }
+  if(S.multi.segIds.size || S.multi.labelIds.size) clearMulti();
+  S.drag = {type:'pan', startX:x, viewStart:S.view.start, viewEnd:S.view.end};
+}
+
+/* touch / pen */
+function touchDown(x,y,e){
+  const g = G.g = { kind:'press', pid:e.pointerId, x0:x, y0:y, t0:nowMs(), tSec:timeAtX(x), hit:null, px0:x, view0:null, s:[[nowMs(),x]] };
+  if(S.addMode==='segment'){
+    S.drag = {type:'newSegment', aSec:clamp(g.tSec,0,S.totalDur), bSec:clamp(g.tSec,0,S.totalDur)}; g.kind='drag'; return;
+  }
+  if(!S.addMode){
+    const sh = segHandleHit(x,y,S._plotH,true);
+    if(sh){ pushUndo(); S.drag={type:'segHandle', seg:sh.seg, edge:sh.edge}; g.kind='drag'; haptic(6); return; }
+    const rh = rangeHandleHit(x,y,true);
+    if(rh){ pushUndo(); const lbl = rh.edge==='start'? S.labels.find(l=>l.id===rh.range.startLabelId) : S.labels.find(l=>l.id===rh.range.endLabelId); S.drag={type:'rangeHandle', label:lbl}; g.kind='drag'; haptic(6); return; }
+  }
+  const ptTag = hitPointTag(x,y,true);
+  if(ptTag && !S.addMode && S.selection.type==='label' && S.selection.id===ptTag.id){
+    S.drag={type:'dragLabel', label:ptTag, moved:false}; g.kind='drag'; haptic(6); return;       // an already-selected tag drags immediately
+  }
+  if(ptTag) g.hit={kind:'label', item:ptTag};
+  else { const seg=hitSegment(x,y,true); if(seg) g.hit={kind:'segment', item:seg}; else { const r=hitRangeLane(x,y,true); if(r) g.hit={kind:'range', item:r}; } }
+  G.press = setTimeout(()=>longPress(g), LONG_MS);
+}
+function longPress(g){
+  G.press=0; if(G.g!==g || g.kind!=='press' || S.addMode) return;
+  g.kind='longpressed'; haptic(14);
+  if(g.hit && g.hit.kind==='segment'){ toggleMultiSegment(g.hit.item.id); return; }
+  if(g.hit && g.hit.kind==='label'){ toggleMultiLabel(g.hit.item.id); return; }
+  if(g.hit && g.hit.kind==='range'){ selectItem('range', g.hit.item.id); return; }
+  S.drag = {type:'marquee', aSec:clamp(g.tSec,0,S.totalDur), bSec:clamp(g.tSec,0,S.totalDur)}; g.kind='marquee'; requestDraw();
+}
+function panTo(g,x){
+  const span=g.view0.end-g.view0.start, dt=-(x-g.px0)/S._plotW*span;
+  setView(g.view0.start+dt, g.view0.end+dt);
+  g.s.push([nowMs(),x]); while(g.s.length>2 && g.s[g.s.length-1][0]-g.s[0][0]>140) g.s.shift();
+}
+function touchMove(x,y,e){
+  const g=G.g; if(!g || g.pid!==e.pointerId) return;
+  if(S.drag){ dragTo(x,y); return; }
+  if(g.kind==='press'){
+    if(Math.hypot(x-g.x0,y-g.y0)<TAP_SLOP) return;
+    clearTimeout(G.press); G.press=0; g.kind='pan'; g.px0=x; g.view0={start:S.view.start,end:S.view.end}; g.s=[[nowMs(),x]];   // pan starts from here, so the slop never shows as a jump
+  }
+  if(g.kind==='pan') panTo(g,x);
+}
+function startFling(v){
+  v=clamp(v,-FLING_MAX,FLING_MAX); let last=nowMs();
+  const f=G.fling={raf:0};
+  const step=(now)=>{
+    if(G.fling!==f) return;
+    const dt=Math.min(now-last,48); last=now;              // real elapsed time, so a 120Hz screen and a 60Hz screen glide identically
+    v*=Math.exp(-dt/FLING_TAU);
+    const a0=S.view.start, e0=S.view.end, span=e0-a0;
+    setView(a0-(v*dt)/S._plotW*span, e0-(v*dt)/S._plotW*span);
+    if(Math.abs(v)<0.02 || (S.view.start===a0 && S.view.end===e0)){ G.fling=null; return; }
+    f.raf=requestAnimationFrame(step);
+  };
+  f.raf=requestAnimationFrame(step);
+}
+function releasePan(g){
+  const s=g.s, last=s[s.length-1], first=s.find(q=>last[0]-q[0]<=110)||s[0], dt=last[0]-first[0];
+  let v = dt>8 ? (last[1]-first[1])/dt : 0;
+  if(nowMs()-last[0]>80) v=0;
+  if(Math.abs(v)>FLING_MIN && !REDUCED_MOTION.matches) startFling(v);
+}
+function onTap(g){
+  const now=nowMs(), multi=S.multi.segIds.size||S.multi.labelIds.size;
+  if(G.lastTap && now-G.lastTap.t<DTAP_MS && Math.hypot(g.x0-G.lastTap.x,g.y0-G.lastTap.y)<DTAP_PX){
+    G.lastTap=null;                                     // double-tap: zoom to the thing under the finger, or fit the whole session
+    if(g.hit && g.hit.kind==='segment') focusOn(g.hit.item); else if(g.hit && g.hit.kind==='label') focusOnTime(g.hit.item.tSec); else setView(0,S.totalDur);
+    return;
+  }
+  G.lastTap={t:now,x:g.x0,y:g.y0};
+  if(S.addMode){ addModeTap(g.tSec); return; }
+  if(g.hit){
+    const h=g.hit;
+    if(multi && h.kind==='segment'){ toggleMultiSegment(h.item.id); return; }       // once a multi-selection exists, a tap adds/removes
+    if(multi && h.kind==='label'){ toggleMultiLabel(h.item.id); return; }
+    selectItem(h.kind, h.item.id); return;
+  }
+  if(multi){ clearMulti(); return; }
+  showTipAt(g.x0,g.y0,true);
+}
+function touchUp(e){
+  const g=G.g; clearTimeout(G.press); G.press=0; G.g=null;
+  if(!g || g.pid!==e.pointerId) return;
+  if(S.drag){ finishDrag(); return; }
+  if(g.kind==='pan') releasePan(g);
+  else if(g.kind==='press') onTap(g);
+}
+function cancelTouch(){
+  clearTimeout(G.press); G.press=0; G.g=null;
+  if(S.drag){ if(S.drag.type==='newSegment' || S.drag.type==='marquee'){ S.drag=null; requestDraw(); } else finishDrag(); }
+}
+function beginPinch(){
+  clearTimeout(G.press); G.press=0; G.g=null; stopFling();
+  if(S.drag){ if(S.drag.type==='newSegment' || S.drag.type==='marquee'){ S.drag=null; requestDraw(); } else finishDrag(); }
+  const [a,b]=[...G.ptrs.values()], cx=(a.x+b.x)/2;
+  G.pinch={ d0:Math.max(30,Math.hypot(a.x-b.x,a.y-b.y)), span0:S.view.end-S.view.start, tC0:timeAtX(cx) };
+  hideTip();
+}
+function updatePinch(){
+  const [a,b]=[...G.ptrs.values()], P=G.pinch, d=Math.max(30,Math.hypot(a.x-b.x,a.y-b.y)), cx=(a.x+b.x)/2;
+  const span=clamp(P.span0*P.d0/d, 0.05, S.totalDur+1);
+  const a0=P.tC0-(cx-PAD.l)/S._plotW*span;
+  setView(a0,a0+span);                                  // the moment under the fingers' midpoint stays under it: zoom and two-finger pan in one
+}
+function resumePan(){                                   // one finger lifts mid-pinch: the other carries on as a pan, with no jump
+  const [pid,p]=[...G.ptrs.entries()][0]; if(!p) return;
+  G.g={ kind:'pan', pid, x0:p.x, y0:p.y, t0:nowMs(), px0:p.x, view0:{start:S.view.start,end:S.view.end}, hit:null, s:[[nowMs(),p.x]] };
+}
+
+wave.addEventListener('pointerdown', (e)=>{
+  if(!S.loaded) return;
+  if(e.pointerType==='mouse' && e.button!==0) return;
+  stopFling(); hideTip();
+  try{ wave.setPointerCapture(e.pointerId); }catch(_){}
+  const rect = wrap.getBoundingClientRect(); G.rect=rect;
+  const x=e.clientX-rect.left, y=e.clientY-rect.top;
+  G.ptrs.set(e.pointerId,{x,y});
+  if(G.ptrs.size===2 && e.pointerType!=='mouse'){ beginPinch(); return; }
+  if(G.ptrs.size>1) return;
+  if(e.pointerType==='mouse') pressMouse(x,y,e); else touchDown(x,y,e);
 });
+wave.addEventListener('pointermove', (e)=>{
+  if(!S.loaded) return;
+  const rect = G.ptrs.size && G.rect ? G.rect : wrap.getBoundingClientRect();
+  const x=e.clientX-rect.left, y=e.clientY-rect.top, p=G.ptrs.get(e.pointerId);
+  if(p){ p.x=x; p.y=y; }
+  if(G.pinch && G.ptrs.size>=2){ updatePinch(); return; }
+  if(e.pointerType==='mouse'){ if(S.drag) dragTo(x,y); else hoverTip(e); return; }
+  if(p) touchMove(x,y,e);
+});
+function onPointerEnd(e){
+  const had=G.ptrs.delete(e.pointerId);
+  try{ wave.releasePointerCapture(e.pointerId); }catch(_){}
+  if(!had) return;
+  if(G.pinch){ if(G.ptrs.size<2){ G.pinch=null; if(G.ptrs.size===1 && e.type==='pointerup') resumePan(); } return; }
+  if(e.pointerType==='mouse'){ finishDrag(); return; }
+  if(e.type==='pointercancel'){ cancelTouch(); return; }
+  touchUp(e);
+}
+wave.addEventListener('pointerup', onPointerEnd);
+wave.addEventListener('pointercancel', onPointerEnd);
+wave.addEventListener('contextmenu', (e)=>{ if(isTouchUI()) e.preventDefault(); });      // a long-press must not open the browser's menu over the waveform
 
 /* ---- multiselect ---- */
 
@@ -2769,8 +3399,11 @@ function selectAllUnmatched(){
 
 function hoverTip(e){
   const rect = wrap.getBoundingClientRect();
-  const x = e.clientX-rect.left, y = e.clientY-rect.top;
-  if(x<PAD.l || x>rect.width-PAD.r || y<PAD.t || y>rect.height-PAD.b){ tip.style.display='none'; return; }
+  showTipAt(e.clientX-rect.left, e.clientY-rect.top, false);
+}
+function showTipAt(x,y,touch){
+  const rect = wrap.getBoundingClientRect();
+  if(x<PAD.l || x>rect.width-PAD.r || y<PAD.t || y>rect.height-PAD.b){ tip.style.display='none'; return false; }
   const tSec = S._vs + (x-PAD.l)/S._plotW*(S._ve-S._vs);
   const idx = lowerBound(S.sensor.tSec, tSec);
   const series = channelSeries(S.channel);
@@ -2784,18 +3417,27 @@ function hoverTip(e){
   }
   tip.innerHTML = html;
   tip.style.display='block';
-  tip.style.left = Math.min(x+14, rect.width-160)+'px';
-  tip.style.top = Math.max(y-10, 4)+'px';
+  if(touch){                                              // a finger covers what is under it: read-out floats above, and fades on its own
+    tip.style.left = clamp(x-70, 4, rect.width-170)+'px';
+    tip.style.top = Math.max(y-84, 4)+'px';
+    clearTimeout(G.tipTimer); G.tipTimer=setTimeout(()=>{ tip.style.display='none'; }, 2600);
+  } else {
+    tip.style.left = Math.min(x+14, rect.width-160)+'px';
+    tip.style.top = Math.max(y-10, 4)+'px';
+  }
   updateMapCursor(tSec);
+  return true;
 }
-wave.addEventListener('mouseleave', ()=>{ tip.style.display='none'; });
+wave.addEventListener('pointerleave', (e)=>{ if(e.pointerType==='mouse') tip.style.display='none'; });
 wave.addEventListener('wheel', (e)=>{
   if(!S.loaded) return;
   e.preventDefault();
+  stopFling();
   const rect = wrap.getBoundingClientRect();
   const x = e.clientX-rect.left;
   const tAtCursor = S._vs + (x-PAD.l)/S._plotW*(S._ve-S._vs);
-  const factor = e.deltaY>0 ? 1.15 : 1/1.15;
+  // a trackpad pinch arrives as ctrl+wheel with small, continuous deltas: zoom smoothly with it instead of in 15% steps
+  const factor = e.ctrlKey ? Math.exp(clamp(e.deltaY,-60,60)*0.012) : (e.deltaY>0 ? 1.15 : 1/1.15);
   let a = tAtCursor - (tAtCursor-S.view.start)*factor;
   let b = tAtCursor + (S.view.end-tAtCursor)*factor;
   const minSpan = 0.05;
@@ -2952,36 +3594,44 @@ function renderMetricPanel(){
    ========================================================================= */
 
 const mini = document.getElementById('miniCanvas');
-const mctx = mini.getContext('2d');
+const mctx = mini.getContext('2d',{alpha:false});
 
 function drawMinimap(){
   const rect = document.getElementById('miniPane').getBoundingClientRect();
-  const W=rect.width, H=rect.height;
+  const W=rect.width, H=rect.height, dpr=mini._dpr||1;
   mctx.clearRect(0,0,W,H);
   mctx.fillStyle='#0D1117'; mctx.fillRect(0,0,W,H);
   if(!S.loaded) return;
   const pad=8;
   const plotW=W-pad*2, plotH=H-pad*2;
   const sn=S.sensor;
-  // envelope per pixel column
-  const cols = Math.max(1, Math.floor(plotW));
-  const mins = new Float64Array(cols).fill(Infinity), maxs=new Float64Array(cols).fill(-Infinity);
-  const series = sn.vertical;
-  for(let i=0;i<sn.n;i++){
-    const t = sn.tSec[i]; const c = clamp(Math.floor((t/S.totalDur)*cols),0,cols-1);
-    const v = series[i]; if(!isFinite(v)) continue;
-    if(v<mins[c]) mins[c]=v; if(v>maxs[c]) maxs[c]=v;
+  // The envelope is O(samples) to build and never changes while the session and the box size stay the same,
+  // so it is painted once into an offscreen canvas and blitted. Panning only repaints the thin viewport window.
+  const key = W+'x'+H+'@'+dpr;
+  if(!S._miniCache || S._miniCache.key!==key){
+    const cv = document.createElement('canvas'); cv.width=Math.max(1,Math.floor(W*dpr)); cv.height=Math.max(1,Math.floor(H*dpr));
+    const c2 = cv.getContext('2d'); c2.setTransform(dpr,0,0,dpr,0,0);
+    c2.fillStyle='#0D1117'; c2.fillRect(0,0,W,H);
+    const cols = Math.max(1, Math.floor(plotW));
+    const mins = new Float64Array(cols).fill(Infinity), maxs=new Float64Array(cols).fill(-Infinity);
+    const series = sn.vertical;
+    for(let i=0;i<sn.n;i++){
+      const t = sn.tSec[i]; const c = clamp(Math.floor((t/S.totalDur)*cols),0,cols-1);
+      const v = series[i]; if(!isFinite(v)) continue;
+      if(v<mins[c]) mins[c]=v; if(v>maxs[c]) maxs[c]=v;
+    }
+    let gmin=Infinity, gmax=-Infinity;
+    for(let c=0;c<cols;c++){ if(mins[c]<gmin) gmin=mins[c]; if(maxs[c]>gmax) gmax=maxs[c]; }
+    if(!isFinite(gmin)){ gmin=-1; gmax=1; }
+    const my = v => pad + (1-(v-gmin)/(gmax-gmin||1))*plotH;
+    c2.fillStyle='rgba(79,195,247,0.25)';
+    for(let c=0;c<cols;c++){
+      if(!isFinite(mins[c])) continue;
+      c2.fillRect(pad+c, my(maxs[c]), 1, Math.max(1, my(mins[c])-my(maxs[c])));
+    }
+    S._miniCache = {key, cv};
   }
-  let gmin=Infinity, gmax=-Infinity;
-  for(let c=0;c<cols;c++){ if(mins[c]<gmin) gmin=mins[c]; if(maxs[c]>gmax) gmax=maxs[c]; }
-  if(!isFinite(gmin)){ gmin=-1; gmax=1; }
-  const my = v => pad + (1-(v-gmin)/(gmax-gmin||1))*plotH;
-  mctx.strokeStyle='#3A4353'; mctx.fillStyle='rgba(79,195,247,0.25)';
-  for(let c=0;c<cols;c++){
-    if(!isFinite(mins[c])) continue;
-    const x = pad+c;
-    mctx.fillRect(x, my(maxs[c]), 1, Math.max(1, my(mins[c])-my(maxs[c])));
-  }
+  mctx.save(); mctx.setTransform(1,0,0,1,0,0); mctx.drawImage(S._miniCache.cv,0,0); mctx.restore();
   // segments strip
   S.segments.forEach(seg=>{
     const m = peakToMScale(seg.peakM); const col = severityColor(m);
@@ -2994,22 +3644,28 @@ function drawMinimap(){
   const vx1 = pad + (S.view.end/S.totalDur)*plotW;
   mctx.fillStyle='rgba(79,195,247,0.12)'; mctx.fillRect(vx0,0,vx1-vx0,H);
   mctx.strokeStyle='#4FC3F7'; mctx.lineWidth=1.5; mctx.strokeRect(vx0,1,Math.max(1,vx1-vx0),H-2);
+  if(isTouchUI()){ mctx.fillStyle='#4FC3F7'; [vx0,vx1].forEach(hx=>{ mctx.beginPath(); mctx.roundRect ? mctx.roundRect(hx-3,H/2-9,6,18,3) : mctx.rect(hx-3,H/2-9,6,18); mctx.fill(); }); }   // grab tabs on the window's edges
   S._miniPlotW=plotW; S._miniPad=pad;
 }
 
 let miniDrag=null;
-mini.addEventListener('mousedown',(e)=>{
+mini.addEventListener('pointerdown',(e)=>{
   if(!S.loaded) return;
+  stopFling();
+  try{ mini.setPointerCapture(e.pointerId); }catch(_){}
   const rect=mini.getBoundingClientRect(); const x=e.clientX-rect.left;
+  const tol = e.pointerType==='mouse' ? 6 : 20;
   const vx0 = S._miniPad + (S.view.start/S.totalDur)*S._miniPlotW;
   const vx1 = S._miniPad + (S.view.end/S.totalDur)*S._miniPlotW;
-  if(Math.abs(x-vx0)<6) miniDrag={mode:'left'};
-  else if(Math.abs(x-vx1)<6) miniDrag={mode:'right'};
-  else if(x>=vx0&&x<=vx1) miniDrag={mode:'move', startX:x, viewStart:S.view.start, viewEnd:S.view.end};
-  else { const t = (x-S._miniPad)/S._miniPlotW*S.totalDur; const span=S.view.end-S.view.start; setView(t-span/2,t+span/2); miniDrag={mode:'move', startX:x, viewStart:S.view.start, viewEnd:S.view.end}; }
+  const d0=Math.abs(x-vx0), d1=Math.abs(x-vx1);
+  const wide = (vx1-vx0) > tol*3;                          // a tiny window has no room for separate handles: dragging it moves it
+  if(wide && d0<tol && d0<=d1) miniDrag={mode:'left', id:e.pointerId};
+  else if(wide && d1<tol) miniDrag={mode:'right', id:e.pointerId};
+  else if(x>=vx0-(wide?0:tol)&&x<=vx1+(wide?0:tol)) miniDrag={mode:'move', id:e.pointerId, startX:x, viewStart:S.view.start, viewEnd:S.view.end};
+  else { const t = (x-S._miniPad)/S._miniPlotW*S.totalDur; const span=S.view.end-S.view.start; setView(t-span/2,t+span/2); miniDrag={mode:'move', id:e.pointerId, startX:x, viewStart:S.view.start, viewEnd:S.view.end}; }
 });
-window.addEventListener('mousemove',(e)=>{
-  if(!miniDrag || !S.loaded) return;
+mini.addEventListener('pointermove',(e)=>{
+  if(!miniDrag || miniDrag.id!==e.pointerId || !S.loaded) return;
   const rect=mini.getBoundingClientRect(); const x=e.clientX-rect.left;
   const t = clamp((x-S._miniPad)/S._miniPlotW*S.totalDur, 0, S.totalDur);
   if(miniDrag.mode==='left'){ setView(Math.min(t, S.view.end-0.05), S.view.end); }
@@ -3019,7 +3675,8 @@ window.addEventListener('mousemove',(e)=>{
     setView(miniDrag.viewStart+dt, miniDrag.viewEnd+dt);
   }
 });
-window.addEventListener('mouseup', ()=>{ miniDrag=null; });
+const miniEnd=(e)=>{ if(miniDrag && miniDrag.id===e.pointerId){ miniDrag=null; try{ mini.releasePointerCapture(e.pointerId); }catch(_){} } };
+mini.addEventListener('pointerup', miniEnd); mini.addEventListener('pointercancel', miniEnd);
 
 /* =========================================================================
    MAP (Leaflet)
@@ -3034,7 +3691,13 @@ function initMap(){
   if(typeof L === 'undefined'){ el.style.display='none'; fallback.style.display='flex'; fallback.textContent='Leaflet failed to load from CDN -- check your internet connection.'; return; }
   el.style.display='block'; fallback.style.display='none';
   if(map){ map.remove(); map=null; }
-  map = L.map(el, {attributionControl:false, zoomControl:true});
+  const touch = isTouchUI();
+  // On touch: no +/- buttons (pinch is the gesture), fractional zoom so a pinch ends where the fingers stop, momentum tuned
+  // like Atlas, and ONE canvas renderer instead of an SVG node per marker (a long ride has hundreds) with a finger-sized hit slop.
+  map = L.map(el, Object.assign({attributionControl:false, zoomControl:!touch}, touch ? {
+    zoomSnap:0.25, zoomDelta:0.5, inertiaDeceleration:2600, easeLinearity:0.22, bounceAtZoomLimits:false,
+    renderer:L.canvas({padding:0.3, tolerance:14})
+  } : {}));
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19}).addTo(map);
   const pts = [];
   for(let i=0;i<S.gps.n;i++) pts.push([S.gps.lat[i], S.gps.lon[i]]);
@@ -3076,7 +3739,7 @@ function drawMapSegmentMarkers(){
     const isSel = S.selection.type==='segment' && S.selection.id===seg.id;
     const isMulti = S.multi.segIds.has(seg.id);
     const marker = L.circleMarker([S.gps.lat[i], S.gps.lon[i]], {
-      radius: isSel?10:6, color: isMulti?'#fff':(isSel?'#fff':severityColor(m)),
+      radius: (isSel?10:6)*(isTouchUI()?1.4:1), color: isMulti?'#fff':(isSel?'#fff':severityColor(m)),
       weight: isSel||isMulti?3:2, fillColor:severityColor(m), fillOpacity:0.65
     });
     marker.on('click', ()=>{ selectItem('segment', seg.id); focusOn(seg); });
@@ -3089,7 +3752,7 @@ function drawMapSegmentMarkers(){
     const isSel = S.selection.type==='label' && S.selection.id===l.id;
     const isMulti = S.multi.labelIds.has(l.id);
     const marker = L.circleMarker([S.gps.lat[i], S.gps.lon[i]], {
-      radius: isSel?8:4, color: isMulti?'#fff':(isSel?'#fff':labelColor(l.label)),
+      radius: (isSel?8:4)*(isTouchUI()?1.5:1), color: isMulti?'#fff':(isSel?'#fff':labelColor(l.label)),
       weight: isSel||isMulti?3:1, fillColor:labelColor(l.label), fillOpacity:0.85
     });
     marker.on('click', ()=>{ selectItem('label', l.id); focusOnTime(l.tSec); });
@@ -3161,12 +3824,14 @@ function updateAddHint(){
   document.getElementById('btnAddPoint').classList.toggle('active-toggle', S.addMode==='point');
   document.getElementById('btnAddRange').classList.toggle('active-toggle', S.addMode==='rangeStart'||S.addMode==='rangeEnd');
   document.getElementById('btnAddSegment').classList.toggle('active-toggle', S.addMode==='segment');
-  if(S.addMode==='point'){ hint.textContent='Click the waveform to place a point tag \u00B7 Esc to cancel'; hint.style.display='block'; }
-  else if(S.addMode==='rangeStart'){ hint.textContent='Click the start of the range \u00B7 Esc to cancel'; hint.style.display='block'; }
-  else if(S.addMode==='rangeEnd'){ hint.textContent='Click the end of the range \u00B7 Esc to cancel'; hint.style.display='block'; }
-  else if(S.addMode==='segment'){ hint.textContent='Drag across the waveform to draw a segment \u00B7 Esc to cancel'; hint.style.display='block'; }
+  const tch=isTouchUI(), verb=tch?'Tap':'Click', stop=tch?'tap here to cancel':'Esc to cancel';
+  if(S.addMode==='point'){ hint.textContent=verb+' the waveform to place a point tag \u00B7 '+stop; hint.style.display='block'; }
+  else if(S.addMode==='rangeStart'){ hint.textContent=verb+' the start of the range \u00B7 '+stop; hint.style.display='block'; }
+  else if(S.addMode==='rangeEnd'){ hint.textContent=verb+' the end of the range \u00B7 '+stop; hint.style.display='block'; }
+  else if(S.addMode==='segment'){ hint.textContent='Drag across the waveform to draw a segment \u00B7 '+stop; hint.style.display='block'; }
   else hint.style.display='none';
 }
+document.getElementById('addModeHint').addEventListener('click', ()=>{ if(isTouchUI()){ S.addMode=null; S.rangeStartSec=null; updateAddHint(); requestDraw(); } });
 document.getElementById('btnAddPoint').addEventListener('click', ()=>{ S.addMode = S.addMode==='point'?null:'point'; S.rangeStartSec=null; updateAddHint(); });
 document.getElementById('btnAddRange').addEventListener('click', ()=>{ S.addMode = (S.addMode==='rangeStart'||S.addMode==='rangeEnd')?null:'rangeStart'; S.rangeStartSec=null; updateAddHint(); });
 document.getElementById('btnAddSegment').addEventListener('click', ()=>{ S.addMode = S.addMode==='segment'?null:'segment'; updateAddHint(); });
@@ -3484,6 +4149,7 @@ function clearWorkbenchView(){
   document.getElementById('sessionName').textContent='No session loaded';
   document.getElementById('dropzone').style.display='flex';
   document.getElementById('waveContent').style.display='none';
+  window.dispatchEvent(new CustomEvent('aitken:session',{detail:{loaded:false}}));
   document.getElementById('btnExport').disabled=true;
   document.getElementById('btnClear').disabled=true;
   document.getElementById('btnAddPoint').disabled=true;
@@ -3537,7 +4203,9 @@ refreshRecentUI();
 
 /* Shared with the Atlas block below: a small, read-only window onto the M-scale and
    colour grading, so both views always agree. (Review itself is otherwise untouched.) */
-window.AitkenWB = { M_SCALE, peakToMScale, severityColor, labelColor, LABEL_COLORS, KNOWN_LABELS, toast };
+window.AitkenWB = { M_SCALE, peakToMScale, severityColor, labelColor, LABEL_COLORS, KNOWN_LABELS, toast,
+  /* read-only window for the browser tests (suite 09); nothing in the app uses it */
+  debug:{ S, setView, drawWave, drawMinimap, minMaxRange, getPyramid, selectItem, stepSegment, requestDraw, get map(){ return map; }, get fling(){ return G.fling; } } };
 
 })();
 </script>
@@ -3571,6 +4239,7 @@ const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
 const toast = (m,k)=>WB.toast(m,k);
 const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
 const raf = (fn)=>requestAnimationFrame(fn);
+const isTouch = ()=>document.documentElement.dataset.input==='touch';   // the LAST pointer used (set by the layout controller in <head>)
 const finite = (v)=>typeof v==='number' && isFinite(v);
 const nz = (v)=>finite(v)?v:null;            // NaN/undefined -> SQL NULL
 const GRAVITY = 9.81;                         // SegmentDetector.gravityBaselineMs2
@@ -4430,7 +5099,7 @@ function setBasemap(){
   const key=resolvedBasemap(); if(!Map_.map || key===Map_.baseKey) return;
   const b=BASEMAPS[key]; if(Map_.base) Map_.map.removeLayer(Map_.base);
   Map_.base=L.tileLayer(b.tpl,{ maxZoom:19, subdomains:b.subs||'abc', attribution:b.attr, keepBuffer:6, updateWhenIdle:false, updateWhenZooming:true, crossOrigin:true }).addTo(Map_.map);
-  Map_.base.bringToBack(); Map_.baseKey=key; $('#atMap').classList.toggle('at-night', !!b.night);
+  Map_.base.bringToBack(); Map_.baseKey=key; tuneForInput(); $('#atMap').classList.toggle('at-night', !!b.night);
 }
 
 /* ---- tile warming: polite, near-viewport only (OSM tile policy forbids bulk prefetch) ---- */
@@ -4466,9 +5135,9 @@ function updateTileStat(){ const el=$('#atTileStat'); if(el) el.textContent=Warm
 function initMap(){
   if(Map_.map) return;
   if(typeof L==='undefined'){ $('#atMap').innerHTML='<div style="padding:30px;color:var(--at-dim)">Leaflet failed to load (offline?). Atlas needs it for the map.</div>'; return; }
-  const map=L.map('atMap',{ zoomControl:false, attributionControl:true, zoomSnap:0.25, zoomDelta:0.5, wheelPxPerZoomLevel:110, wheelDebounceTime:25, inertiaDeceleration:2600, easeLinearity:0.22, minZoom:3, maxZoom:19, worldCopyJump:false });
+  const map=L.map('atMap',{ zoomControl:false, attributionControl:true, zoomSnap:0.25, zoomDelta:0.5, wheelPxPerZoomLevel:110, wheelDebounceTime:25, inertiaDeceleration:2600, easeLinearity:0.22, bounceAtZoomLimits:false, minZoom:3, maxZoom:19, worldCopyJump:false });
   L.control.zoom({position:'bottomright'}).addTo(map); L.control.scale({position:'bottomleft',imperial:false,maxWidth:120}).addTo(map);
-  Map_.map=map; Map_.rend=L.canvas({ padding:0.4, tolerance:6 });
+  Map_.map=map; Map_.rend=L.canvas({ padding:0.4, tolerance:6 }); tuneForInput();
   Map_.tip=L.tooltip({ className:'at-tip', direction:'top', offset:[0,-10], opacity:1, permanent:false });
   const v=Prefs.view; map.setView(v?[v.lat,v.lng]:[18.52,73.86], v?v.zoom:11, {animate:false});
   setBasemap();
@@ -4479,6 +5148,15 @@ function initMap(){
   ['wheel','pointerdown','keydown'].forEach(ev=>map.getContainer().addEventListener(ev,()=>{ Map_.userMoved=true; },{passive:true,capture:true}));
   Map_.ready=true;
 }
+/* Re-tuned every time the last-used pointer flips (touch <-> mouse); Leaflet reads these options at use, not at creation.
+   touch: a finger-sized hit slop (14px), a smaller canvas halo (less to redraw when a pan crosses it), and a small tile buffer that
+   does not fetch mid-pinch (the 6-tile buffer and per-frame loads are for a mouse wheel on a desktop GPU, not a phone radio). */
+function tuneForInput(){
+  const t=isTouch();
+  if(Map_.rend){ Map_.rend.options.tolerance=t?14:6; Map_.rend.options.padding=t?0.3:0.4; }
+  if(Map_.base){ Map_.base.options.keepBuffer=t?2:6; Map_.base.options.updateWhenZooming=!t; Map_.base.options.updateInterval=t?160:200; }
+}
+window.addEventListener('aitken:layout',()=>tuneForInput());
 function onZoomEnd(){
   const z=Map_.map.getZoom();
   Active.sources.forEach(s=>s.items.forEach(it=>styleRoad(it)));
@@ -4727,7 +5405,7 @@ function selectEvent(ev, opts){
   setSel({kind:'event', key:ev.key, ev, sid:ev.sid});
   let e=findEventEntry(ev.key);
   if(e&&e.marker){ e.marker.setStyle(evStyle(ev,'sel')); e.marker.setRadius(evRadius(ev)*1.45); e.marker.bringToFront(); }
-  if(!opts||opts.pan!==false) Map_.map.flyTo([ev.lat,ev.lon], Math.max(Map_.map.getZoom(),16), {duration:.8});
+  if(!opts||opts.pan!==false) flyToVisible([ev.lat,ev.lon], Math.max(Map_.map.getZoom(),16));
 }
 function selectRoad(r, srcId, opts){
   const key=`${srcId}:${r.id}`; setSel({kind:'road', key, road:r, srcId});
@@ -4743,7 +5421,7 @@ function selectSession(sid, opts){
 function clearSelection(){ setSel(null); }
 function onMapClick(e){
   // nearest ride route within 12 px selects the session
-  let best=null, bd=12;
+  let best=null, bd=isTouch()?20:12;
   Active.routes.forEach((r,sid)=>{ for(const part of r.parts){ for(let i=0;i<part.length;i+=2){ const p=Map_.map.latLngToContainerPoint([part[i][0],part[i][1]]); const d=Math.hypot(p.x-e.containerPoint.x,p.y-e.containerPoint.y); if(d<bd){ bd=d; best=sid; } } } });
   if(best){ selectSession(best,{fit:false}); } else clearSelection();
 }
@@ -4751,10 +5429,21 @@ function onMapClick(e){
 /* ============================ viewport helpers ========================== */
 
 function sidePad(){ return $('#atlas').classList.contains('side-collapsed')?24:408; }
+/* The part of the map the person can actually see. null = the laptop layout, where the original numbers (408px sidebar, 360px card) apply.
+   On a phone the shell reports how much the top pills and the rising sheet cover, so fitBBox / flyTo never park a road under a sheet. */
+function viewInsets(){ const S=window.AitkenShell; return S&&S.atlasInsets?S.atlasInsets(!!Sel):null; }
+function flyToVisible(ll, z){
+  const m=Map_.map, ins=viewInsets();
+  if(!ins){ m.flyTo(ll,z,{duration:.8}); return; }
+  const p=m.project(L.latLng(ll),z), c=p.subtract([(ins.left-ins.right)/2,(ins.top-ins.bottom)/2]);   // centre of the VISIBLE rectangle, not of the whole map
+  m.flyTo(m.unproject(c,z),z,{duration:.8});
+}
 function fitBBox(bb, opts){
   if(!bb||!Map_.map) return Promise.resolve(); opts=opts||{};
   const b=L.latLngBounds([bb[0],bb[1]],[bb[2],bb[3]]);
-  const o={ paddingTopLeft:[sidePad(),84], paddingBottomRight:[opts.right!=null?opts.right:(Sel?360:40),70], maxZoom:opts.maxZoom||17 };
+  const ins=viewInsets();
+  const o= ins ? { paddingTopLeft:[ins.left,ins.top], paddingBottomRight:[opts.right!=null?opts.right:ins.right,ins.bottom], maxZoom:opts.maxZoom||17 }
+               : { paddingTopLeft:[sidePad(),84], paddingBottomRight:[opts.right!=null?opts.right:(Sel?360:40),70], maxZoom:opts.maxZoom||17 };
   const cz=Map_.map._getBoundsCenterZoom(b,o);
   const tgt=L.latLngBounds(Map_.map.unproject(Map_.map.project(cz.center,cz.zoom).subtract(Map_.map.getSize().divideBy(2)),cz.zoom), Map_.map.unproject(Map_.map.project(cz.center,cz.zoom).add(Map_.map.getSize().divideBy(2)),cz.zoom));
   if(opts.instant){ Map_.map.fitBounds(b,Object.assign({animate:false},o)); return Promise.resolve(); }
@@ -4808,7 +5497,7 @@ function setSources(ids,on){ ids.forEach(id=>on?srcSet.add(id):srcSet.delete(id)
    the top/bottom scroll zone (or beyond the edge) scrolls the list, faster the closer
    to / further past the edge, and keeps painting as new rows slide under the cursor. */
 function PaintList(el, cfg){
-  const st={ ids:[], rows:[], drag:null, anchor:-1, focus:-1, timer:0 };
+  const st={ ids:[], rows:[], drag:null, anchor:-1, focus:-1, timer:0, touch:null };
   const ZONE=54, MAXV=26;
   function rowHtml(it,i){
     const id=cfg.id(it), on=cfg.isOn(id);
@@ -4844,7 +5533,23 @@ function PaintList(el, cfg){
     if(v){ v=clamp(v,-2.4,2.4); el.scrollTop+=Math.sign(v)*Math.pow(Math.abs(v),1.5)*MAXV*0.5; paintToPointer(); }
     st.timer=requestAnimationFrame(tick);
   }
-  function end(e){ if(!st.drag) return; st.drag=null; cancelAnimationFrame(st.timer); el.classList.remove('painting'); try{ el.releasePointerCapture(e.pointerId); }catch(_){} }
+  /* touch / pen: a press is only a CANDIDATE.  Lift without moving = a tap (toggle that row).  Move first = a scroll: the browser takes the
+     gesture and sends pointercancel, so nothing toggles (the old code toggled on pointerdown, so flicking the list ticked rows).
+     Hold ~400ms = paint mode: a haptic tick, then dragging paints rows like the mouse does, and native scrolling is blocked until release. */
+  const LP_MS=400, LP_SLOP=6;
+  function cancelTouch(){ if(st.touch){ clearTimeout(st.touch.timer); st.touch=null; } }
+  function touchPress(e,i,id){
+    cancelTouch();
+    const c={ id:e.pointerId, x:e.clientX, y:e.clientY, i, timer:0 };
+    c.timer=setTimeout(()=>{
+      if(st.touch!==c) return; st.touch=null;
+      st.drag={ target:!cfg.isOn(id), last:i, x:c.x, y:c.y }; st.anchor=i; paintRange(i,i,st.drag.target);
+      el.dataset.painting='1'; el.classList.add('painting'); try{ el.setPointerCapture(c.id); }catch(_){}
+      st.timer=requestAnimationFrame(tick); try{ if(navigator.vibrate) navigator.vibrate(12); }catch(_){}
+    },LP_MS);
+    st.touch=c;
+  }
+  function end(e){ if(!st.drag) return; st.drag=null; cancelAnimationFrame(st.timer); el.classList.remove('painting'); delete el.dataset.painting; try{ el.releasePointerCapture(e.pointerId); }catch(_){} }
   function setFocus(i,scroll){ st.rows.forEach(r=>r.classList.remove('focus')); st.focus=clamp(i,0,st.ids.length-1); const r=st.rows[st.focus]; if(r){ r.classList.add('focus'); if(scroll) r.scrollIntoView({block:'nearest',behavior:'smooth'}); } }
 
   el.addEventListener('pointerdown',(e)=>{
@@ -4852,13 +5557,18 @@ function PaintList(el, cfg){
     const row=e.target.closest('.at-row[data-idx]'); if(!row) return;
     const i=+row.dataset.idx, id=st.ids[i]; el.focus({preventScroll:true}); setFocus(i,false);
     if(e.shiftKey && st.anchor>=0){ paintRange(st.anchor,i,cfg.isOn(st.ids[st.anchor])); e.preventDefault(); return; }
-    if(e.pointerType==='touch'){ paintRange(i,i,!cfg.isOn(id)); st.anchor=i; return; }
+    if(e.pointerType!=='mouse'){ touchPress(e,i,id); return; }
     st.drag={ target:!cfg.isOn(id), last:i, x:e.clientX, y:e.clientY }; st.anchor=i;
     paintRange(i,i,st.drag.target);
     el.setPointerCapture(e.pointerId); el.classList.add('painting'); st.timer=requestAnimationFrame(tick); e.preventDefault();
   });
-  el.addEventListener('pointermove',(e)=>{ if(!st.drag) return; st.drag.x=e.clientX; st.drag.y=e.clientY; paintToPointer(); });
-  el.addEventListener('pointerup',end); el.addEventListener('pointercancel',end); el.addEventListener('lostpointercapture',end);
+  el.addEventListener('pointermove',(e)=>{
+    if(st.touch&&e.pointerId===st.touch.id&&Math.hypot(e.clientX-st.touch.x,e.clientY-st.touch.y)>LP_SLOP) cancelTouch();      // it is a scroll, not a hold
+    if(!st.drag) return; st.drag.x=e.clientX; st.drag.y=e.clientY; paintToPointer(); });
+  el.addEventListener('pointerup',(e)=>{ const c=st.touch; if(c&&e.pointerId===c.id){ cancelTouch(); const id=st.ids[c.i]; if(id!=null){ paintRange(c.i,c.i,!cfg.isOn(id)); st.anchor=c.i; } return; } end(e); });
+  el.addEventListener('pointercancel',(e)=>{ cancelTouch(); end(e); }); el.addEventListener('lostpointercapture',end);
+  el.addEventListener('touchmove',(e)=>{ if(st.drag&&e.cancelable) e.preventDefault(); },{passive:false});               // paint mode owns the finger: no scrolling under it
+  el.addEventListener('contextmenu',(e)=>{ if(isTouch()) e.preventDefault(); });                                           // a long-press must not open the browser menu
   el.addEventListener('click',(e)=>{ const b=e.target.closest('[data-act]'); if(!b) return; const row=b.closest('.at-row[data-idx]'); if(row&&cfg.onAct) cfg.onAct(b.dataset.act, st.ids[+row.dataset.idx], e); });
   el.addEventListener('dblclick',(e)=>{ if(e.target.closest('[data-act]')) return; const row=e.target.closest('.at-row[data-idx]'); if(row&&cfg.onDbl) cfg.onDbl(st.ids[+row.dataset.idx]); });
   el.addEventListener('keydown',(e)=>{
@@ -4884,7 +5594,7 @@ function sessionBody(s){
   const m=s.meta, g=generationById(m.generation), nw=(m.warnings||[]).filter(w=>w.level==='warn').length;
   return `<div class="at-rmain"><div class="at-rt"><span class="nm">${esc(fmtDateTime(m.startedMs)||m.name)}</span><span class="at-pill ${GEN_CLS[g.id]||''}" title="${esc(g.label)}">${esc(g.short)}</span>${m.nGps?'':'<span class="at-pill bad">no GPS</span>'}${nw&&m.nGps?`<span class="at-pill warn" title="${nw} warning(s) - open details">!</span>`:''}</div>
     <div class="at-rs">${esc(shortId(m.name))} · ${fmtKm(m.distM)} · ${fmtDurS(m.durS)} · ${m.nSeg} ev</div></div>
-    <div class="at-racts"><button class="ghost" data-act="zoom" title="Zoom to this ride">&#9678;</button><button class="ghost" data-act="info" title="Details">&#9432;</button><button class="ghost" data-act="del" title="Remove from Atlas">&#10005;</button></div>`;
+    <div class="at-racts"><button class="ghost" data-act="zoom" title="Zoom to this ride">&#9678;</button><button class="ghost" data-act="info" title="Details">&#9432;</button><button class="ghost" data-act="del" title="Remove from Atlas">&#10005;</button></div><button class="ghost at-kebab" data-act="menu" aria-label="Row actions" title="Actions">&#8942;</button>`;
 }
 function importingHtml(){ return Importing.map(p=>`<div class="at-row build"><span class="at-cb"></span><div class="at-rmain"><div class="at-rt"><span class="nm">${esc(p.name)}</span></div><div class="at-rs">${esc(p.stage||'reading…')}</div></div><div class="at-prog" style="width:${Math.round((p.pct||0)*100)}%"></div></div>`).join(''); }
 const sessList = PaintList($('#atSessList'),{
@@ -4908,7 +5618,7 @@ function sourceBody(s){
   const m=s.meta, reg=allRegions().find(r=>r.id===m.regionId);
   return `<span class="at-srcswatch"></span><div class="at-rmain"><div class="at-rt"><span class="nm">${esc(m.name)}</span>${m.sample?'<span class="at-pill warn">SAMPLE</span>':''}${m.nPending?`<span class="at-pill warn" title="${m.nPending} record(s) have no geometry yet">${m.nPending} to place</span>`:''}</div>
     <div class="at-rs">${fmtInt(m.nRoads)} roads · ${fmtInt(m.nNamed)} named${reg?' · '+esc(reg.name):''}</div></div>
-    <div class="at-racts">${m.nPending?'<button class="ghost" data-act="resolve" title="Find these roads on OpenStreetMap by name">&#8635;</button>':''}<button class="ghost" data-act="zoom" title="Zoom to this source">&#9678;</button><button class="ghost" data-act="info" title="Provenance">&#9432;</button><button class="ghost" data-act="del" title="Remove source">&#10005;</button></div>`;
+    <div class="at-racts">${m.nPending?'<button class="ghost" data-act="resolve" title="Find these roads on OpenStreetMap by name">&#8635;</button>':''}<button class="ghost" data-act="zoom" title="Zoom to this source">&#9678;</button><button class="ghost" data-act="info" title="Provenance">&#9432;</button><button class="ghost" data-act="del" title="Remove source">&#10005;</button></div><button class="ghost at-kebab" data-act="menu" aria-label="Row actions" title="Actions">&#8942;</button>`;
 }
 const srcList = PaintList($('#atSrcList'),{
   items:()=>[...Model.sources.values()], id:s=>s.meta.id, isOn:id=>srcSet.has(id), set:setSources, body:sourceBody,
@@ -5041,7 +5751,7 @@ function renderIndex(){
 function bindIndex(){
   $('#atIdxSeg').addEventListener('click',(e)=>{ const b=e.target.closest('button[data-k]'); if(!b) return; Prefs.idxTab=b.dataset.k; savePrefs(); renderIndex(); });
   $('#atIdxList').addEventListener('click',(e)=>{ const r=e.target.closest('.at-row[data-i]'); if(r&&idxFns[+r.dataset.i]) idxFns[+r.dataset.i](); });
-  $('#atAZ').addEventListener('click',(e)=>{ const b=e.target.closest('button[data-l]'); if(!b) return; const h=$('#idx-'+(b.dataset.l==='#'?'num':b.dataset.l)); if(h) $('#atIdxList').scrollTo({top:h.offsetTop-2,behavior:'smooth'}); });
+  $('#atAZ').addEventListener('click',(e)=>{ const b=e.target.closest('button[data-l]'); if(!b) return; const h=$('#idx-'+(b.dataset.l==='#'?'num':b.dataset.l)); if(h) h.scrollIntoView({block:'start',inline:'nearest',behavior:'smooth'}); });
 }
 
 /* ----- regions ----- */
@@ -5193,7 +5903,7 @@ function cardShell(badge,title,sub,body){ return `<div class="atc-head">${badge}
 function coordLinks(lat,lon){ return `<div class="atc-actions"><button data-card="copy" data-v="${lat.toFixed(6)}, ${lon.toFixed(6)}">Copy coordinates</button><a href="https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=19/${lat}/${lon}" target="_blank" rel="noopener"><button>Open in OSM</button></a></div>`; }
 
 function renderCard(sel){
-  const el=card(); if(!sel){ el.classList.remove('on'); el.innerHTML=''; return; }
+  const el=card(); if(!sel){ el.classList.remove('on'); if(!(window.AitkenShell&&AitkenShell.keepCardContent&&AitkenShell.keepCardContent())) el.innerHTML=''; return; }   // as a phone sheet it keeps its text while it slides down
   let html='';
   if(sel.kind==='event') html=eventCard(sel.ev);
   else if(sel.kind==='road') html=roadCard(sel.road, sel.srcId);
@@ -5490,6 +6200,334 @@ async function boot(){
 window.AitkenAtlas = { Prefs, Model, Store, Active, T, importZips, importSourceFiles, routeFiles, setMode, refresh, doRefresh, selectEvent, selectRoad, selectSession, eventsOf, hydrate, rideEvidence, readSourceDraft, buildRoads, guessMapping, parseWKT, normalizeGeometry, resolveGeometries, clusterWays, saveSource, loadSources, ensureRoads, computeStats, mOfPeak, goRegion, reloadAll, get map(){ return Map_.map; }, get sel(){ return Sel; }, GENERATIONS, EVENT_TYPES, passEvent, sessionsView, sessList, srcList, runSearch, boot:()=>boot() };
 
 boot().catch(e=>{ console.error('Atlas boot failed',e); });
+})();
+</script>
+<script>
+/* =========================================================================
+   MOBILE SHELL -- loaded after Review and Atlas, and only ever uses what they
+   already export (window.AitkenWB / AitkenAtlas) plus a few CustomEvents.
+
+   It does NOT re-implement the workbench for small screens. It re-presents
+   the same DOM:
+     - the panes you would put on a laptop become sheets (bottom sheets on a
+       phone held upright, side drawers when there is width to spare);
+     - the toolbar's dozen buttons are re-parented (never cloned, so ids,
+       state and listeners are untouched) into a dock, an Add popover and two
+       sheets, and put back verbatim when the window grows;
+     - Atlas's floating sidebar / card / HUD / legend become one bottom sheet
+       at three detents, with search and regions floating over the map.
+   ========================================================================= */
+(function(){
+"use strict";
+const root=document.documentElement;
+const $=(s,r)=>(r||document).querySelector(s), $$=(s,r)=>Array.from((r||document).querySelectorAll(s));
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const compact=()=>root.dataset.layout==='compact';
+const sideMode=()=>root.dataset.sheet==='side';
+const isTouch=()=>root.dataset.input==='touch';
+const fire=(name,detail)=>window.dispatchEvent(new CustomEvent(name,{detail}));
+function haptic(ms){ try{ if(navigator.vibrate) navigator.vibrate(ms||8); }catch(e){} }
+const nowMs=()=>performance.now();
+
+/* ---- re-parenting that can always be undone ---- */
+const homes=new Map();     // node -> comment left where it used to live
+function adopt(node,target,before){
+  if(!node||!target) return;
+  if(!homes.has(node)){ const ph=document.createComment('home:'+(node.id||node.className||'node')); node.parentNode.insertBefore(ph,node); homes.set(node,ph); }
+  if(node.parentNode!==target||(before&&node.nextSibling!==before)) target.insertBefore(node,before||null);
+}
+function restoreAll(){ homes.forEach((ph,node)=>{ if(ph.parentNode) ph.replaceWith(node); }); homes.clear(); }
+
+/* =========================================================================
+   SHEETS
+   One class for every panel that slides. Detents run lowest to highest
+   (closed < peek < half < full). Dragging the grab handle or the header moves it
+   and, on release, it settles on the detent nearest to where its momentum would
+   have taken it. Scrolling the body is native (so it keeps the platform's own
+   momentum); the body only hands off to the sheet when the sheet is not yet full,
+   or when a full sheet is pulled down from scrollTop 0.
+   ========================================================================= */
+const sheets=new Map();
+class Sheet{
+  constructor(el,name,o){
+    this.el=el; this.name=name; this.o=o||{}; this.detents=this.o.detents||['closed','half','full']; this.peek=this.o.peek||0;
+    this.detent=this.o.initial||'closed'; this._d=null;
+    el.dataset.sheetName=name; el.dataset.detent=this.detent;
+    sheets.set(name,this); this.bind();
+  }
+  active(){ return compact() && (!this.o.bottomOnly || root.dataset.sheet==='bottom'); }
+  isSide(){ return !this.o.bottomOnly && sideMode(); }
+  size(){ return this.isSide()?this.el.offsetWidth:this.el.offsetHeight; }
+  allowed(){ return this.isSide()?['closed','full']:this.detents; }
+  offsetFor(d){
+    const full=this.size();
+    if(this.isSide()) return d==='closed'?full+6:0;
+    if(d==='full') return 0; if(d==='half') return Math.round(full*(1-(this.o.half||.48))); if(d==='peek') return Math.max(0,full-this.peek);
+    return full+6;
+  }
+  lowest(){ return this.detents[0]; }
+  maxOffset(){ return this.isSide()?this.offsetFor('closed'):this.offsetFor(this.lowest()); }
+  apply(px){ this.el.style.transform=this.isSide()?`translate3d(${px}px,0,0)`:`translate3d(0,${px}px,0)`; this.vis=this.size()-px; if(this.o.onMove) this.o.onMove(this,px); }
+  set(d,opt){
+    opt=opt||{}; const animate=opt.animate!==false;
+    if(this.isSide()&&d!=='closed') d='full';
+    if(!this.detents.includes(d)) d=this.detents.includes('full')?'full':this.detents[this.detents.length-1];
+    const was=this.detent; this.detent=d; this.el.dataset.detent=d;
+    if(this.active()){
+      if(!animate){ this.el.classList.add('dragging'); }
+      this.apply(this.offsetFor(d));
+      if(!animate){ void this.el.offsetHeight; this.el.classList.remove('dragging'); }
+    } else { this.el.style.transform=''; }
+    if(was!==d&&!opt.silent){ if(this.o.onChange) this.o.onChange(this,d,was); fire('aitken:sheet',{name:this.name,detent:d}); }
+  }
+  refresh(){ if(this.active()){ this.set(this.detent,{animate:false,silent:true}); } else { this.el.style.transform=''; } if(this.o.onRefresh) this.o.onRefresh(this); }
+  toggle(d){ this.set(this.detent==='closed'?(d||'half'):'closed'); }
+  /* ---- dragging ---- */
+  dragBegin(p){ this._d={p0:p,off:this.offsetFor(this.detent),px:this.offsetFor(this.detent),s:[[nowMs(),p]]}; this.el.classList.add('dragging'); }
+  dragMove(p){ const d=this._d; if(!d) return; const px=clamp(d.off+(p-d.p0),0,this.maxOffset()); d.px=px; this.apply(px); d.s.push([nowMs(),p]); while(d.s.length>2&&nowMs()-d.s[0][0]>120) d.s.shift(); }
+  dragEnd(){
+    const d=this._d; if(!d) return; this._d=null; this.el.classList.remove('dragging');
+    const a=d.s[0], b=d.s[d.s.length-1]; let v=0; if(b[0]-a[0]>8 && nowMs()-b[0]<90) v=(b[1]-a[1])/(b[0]-a[0]);   // px/ms, + = downward / rightward
+    const target=d.px+v*240;
+    let best=null,bd=1e9; this.allowed().forEach(n=>{ const dd=Math.abs(this.offsetFor(n)-target); if(dd<bd){ bd=dd; best=n; } });
+    this.set(best||this.detent);
+  }
+  bind(){
+    const el=this.el, o=this.o;
+    const zones=o.dragZones||':scope > .sheet-grab, :scope > .sheet-head, :scope > .pane-head, :scope > #treeTabs';
+    const start=(z,e)=>{
+      if(!this.active()||(e.pointerType==='mouse'&&e.button>0)||e.target.closest('.sheet-x,select,input'+(o.noDrag?','+o.noDrag:''))) return;
+      const side=this.isSide(), p0=side?e.clientX:e.clientY, id=e.pointerId; let moved=false;
+      const mv=(ev)=>{ if(ev.pointerId!==id) return; const p=side?ev.clientX:ev.clientY;
+        if(!moved){ if(Math.abs(p-p0)<7) return; moved=true; this.dragBegin(p0); try{ z.setPointerCapture(id); }catch(_){} }
+        this.dragMove(p); };
+      const up=(ev)=>{ if(ev.pointerId!==id) return; z.removeEventListener('pointermove',mv); z.removeEventListener('pointerup',up); z.removeEventListener('pointercancel',up);
+        if(moved){ this.dragEnd(); const stop=(c)=>{ c.stopPropagation(); c.preventDefault(); }; z.addEventListener('click',stop,{capture:true,once:true}); setTimeout(()=>z.removeEventListener('click',stop,{capture:true}),60); } };
+      z.addEventListener('pointermove',mv); z.addEventListener('pointerup',up); z.addEventListener('pointercancel',up);
+    };
+    if(o.delegate){
+      /* for panels whose children are re-rendered (Atlas's card replaces its innerHTML): listen on the panel itself, so the handlers survive.
+         A press on the panel's own padding (its drawn grab handle) or on o.dragHit starts a drag. */
+      el.addEventListener('pointerdown',(e)=>{ if(e.target===el||(o.dragHit&&e.target.closest(o.dragHit))) start(el,e); });
+      this.bindBody(el,(t)=>!!(o.body&&t.closest(o.body)));
+    } else {
+      $$(zones,el).forEach(z=>z.addEventListener('pointerdown',(e)=>start(z,e)));
+      const body=o.body?$(o.body,el):$(':scope > .sheet-body',el);
+      if(body) this.bindBody(body,()=>true);
+    }
+    $$(':scope .sheet-x,[data-sheet-close="'+this.name+'"]',el).forEach(b=>b.addEventListener('click',()=>this.set('closed')));
+  }
+  /* body hand-off: the body scrolls natively (so it keeps the platform's own momentum). The sheet only takes the gesture when it is not yet
+     full, or when it is full and the scroller UNDER THE FINGER (not just the outer pane: Atlas pages and lists scroll on their own) is at its top. */
+  bindBody(host,inBody){
+    let g=null;
+    const scrollerOf=(t)=>{ for(let n=t; n&&n.nodeType===1&&n!==this.el; n=n.parentElement){ const oy=getComputedStyle(n).overflowY; if((oy==='auto'||oy==='scroll')&&n.scrollHeight>n.clientHeight+1) return n; if(n===host) break; } return null; };
+    host.addEventListener('touchstart',(e)=>{
+      if(e.touches.length!==1||!this.active()||this.isSide()||!inBody(e.target)||e.target.closest('input[type=range],select,textarea,canvas,.leaflet-container,[data-noswipe]')){ g=null; return; }
+      const t=e.touches[0], sc=scrollerOf(e.target); g={y0:t.clientY,x0:t.clientX,decided:false,drag:false,st:sc?sc.scrollTop:0};
+    },{passive:true});
+    host.addEventListener('touchmove',(e)=>{
+      if(!g||e.touches.length!==1) return; const t=e.touches[0], dy=t.clientY-g.y0, dx=t.clientX-g.x0;
+      if(!g.decided){
+        if(Math.abs(dy)<6&&Math.abs(dx)<6) return; g.decided=true;
+        if(Math.abs(dx)>Math.abs(dy)||e.target.closest('[data-painting]')){ g=null; return; }     // sideways, or a long-press paint-select is in progress
+        const full=this.detent==='full', atTop=g.st<=0;
+        if(!full||(atTop&&dy>0)){ g.drag=true; this.dragBegin(g.y0); }
+      }
+      if(g&&g.drag){ if(e.cancelable) e.preventDefault(); this.dragMove(t.clientY); }
+    },{passive:false});
+    const end=()=>{ if(g&&g.drag) this.dragEnd(); g=null; };
+    host.addEventListener('touchend',end,{passive:true}); host.addEventListener('touchcancel',end,{passive:true});
+  }
+}
+const Sheets={ get:(n)=>sheets.get(n), all:()=>sheets };
+
+/* =========================================================================
+   REVIEW: dock, Add popover, Signal / Session sheets
+   ========================================================================= */
+const REVIEW=['tree','insp','signal','menu'];
+function reviewOpen(name,detent){ REVIEW.forEach(n=>{ if(n!==name) sheets.get(n)&&sheets.get(n).set('closed'); }); const s=sheets.get(name); if(s) s.set(detent||'half'); closeAddPop(); }
+function reviewToggle(name,detent){ const s=sheets.get(name); if(!s) return; if(s.detent==='closed') reviewOpen(name,detent); else s.set('closed'); }
+
+const addPop=$('#addPop'), scrim=$('#scrim');
+function openAddPop(){ addPop.classList.add('open'); $('#dockAdd').setAttribute('aria-expanded','true'); updateDock(); }
+function closeAddPop(){ if(!addPop.classList.contains('open')) return; addPop.classList.remove('open'); $('#dockAdd').setAttribute('aria-expanded','false'); updateDock(); }
+function updateScrim(){ const modal=['signal','menu'].some(n=>{ const s=sheets.get(n); return s&&s.detent!=='closed'; })||addPop.classList.contains('open'); scrim.classList.toggle('on',compact()&&modal); }
+scrim.addEventListener('click',()=>{ closeAddPop(); ['signal','menu'].forEach(n=>sheets.get(n)&&sheets.get(n).set('closed')); });
+
+function updateDock(){
+  const open=(n)=>{ const s=sheets.get(n); return !!s&&s.detent!=='closed'; };
+  $('#dockItems').classList.toggle('on',open('tree')); $('#dockInspect').classList.toggle('on',open('insp')); $('#dockMore').classList.toggle('on',open('menu')||open('signal'));
+  const adding=['btnAddPoint','btnAddRange','btnAddSegment'].some(id=>{ const b=$('#'+id); return b&&b.classList.contains('active-toggle'); });
+  $('#dockAdd').classList.toggle('on',addPop.classList.contains('open')||adding);
+  const n=$('#cSeg'); $('#dockCount').textContent=(n&&+n.textContent>0)?n.textContent:'';
+  updateScrim();
+}
+$('#dockItems').addEventListener('click',()=>reviewToggle('tree','half'));
+$('#dockInspect').addEventListener('click',()=>reviewToggle('insp','half'));
+$('#dockMore').addEventListener('click',()=>reviewToggle('menu','half'));
+$('#dockAdd').addEventListener('click',()=>{ if(addPop.classList.contains('open')) closeAddPop(); else { REVIEW.forEach(n=>{ const s=sheets.get(n); if(s&&(n==='menu'||n==='signal')) s.set('closed'); }); openAddPop(); } });
+addPop.addEventListener('click',(e)=>{ if(e.target.closest('button')) setTimeout(closeAddPop,0); });
+document.addEventListener('pointerdown',(e)=>{ if(addPop.classList.contains('open')&&!e.target.closest('#addPop,#dockAdd')) closeAddPop(); },true);
+$('#btnSigOpts').addEventListener('click',()=>reviewToggle('signal','half'));
+
+new Sheet($('#treePane'),'tree',{detents:['closed','half','full'],body:'#treeBody',onChange:updateDock});
+new Sheet($('#inspPane'),'insp',{detents:['closed','peek','half','full'],peek:158,body:'#inspBody',onChange:updateDock});
+new Sheet($('#sheetSignal'),'signal',{detents:['closed','half','full'],onChange:updateDock});
+new Sheet($('#sheetMenu'),'menu',{detents:['closed','half','full'],onChange:updateDock});
+['btnAddPoint','btnAddRange','btnAddSegment'].forEach(id=>{ const b=$('#'+id); if(b) new MutationObserver(updateDock).observe(b,{attributes:true,attributeFilter:['class']}); });
+{ const n=$('#cSeg'); if(n) new MutationObserver(updateDock).observe(n,{childList:true,characterData:true,subtree:true}); }
+
+function buildCompact(){
+  const menu=$('#menuSession'), sig=$('#signalBody');
+  adopt($('#grpFile'),menu);
+  adopt($('#grpNav'),$('#dockNav'));
+  adopt($('#grpAdd'),addPop);
+  const sw=$('#signalSwitches'), tools=$('#signalTools');
+  ['chkSeg','chkTags','chkSpeed','chkCalibLine','chkRecompute'].forEach(id=>adopt($('#'+id).closest('label'),sw));
+  adopt($('#speedUnit'),sw);
+  ['btnTunables','btnRoughness','btnSelectVisible'].forEach(id=>adopt($('#'+id),tools));
+  adopt($('#metricPanel'),sig); adopt($('#tunablesPanel'),sig);
+}
+function teardownCompact(){
+  closeAddPop(); sheets.forEach((s,n)=>{ if(!n.startsWith('at')) s.set('closed',{animate:false,silent:true}); });   // Atlas's sheets keep their detent: they have no 'closed'
+  restoreAll(); updateScrim();
+}
+function applyLayout(){
+  if(compact()) buildCompact(); else teardownCompact();
+  sheets.forEach(s=>s.refresh());
+  updateDock();
+  if(typeof buildAtlas==='function') buildAtlas();
+}
+window.addEventListener('aitken:layout',applyLayout);
+
+/* ---- Review -> shell events ---- */
+let lastSig='';
+window.addEventListener('aitken:inspector',(e)=>{
+  const d=e.detail||{}, sig=d.mode+':'+(d.id==null?'':d.id)+':'+(d.count||0), changed=sig!==lastSig; lastSig=sig;
+  updateDock();
+  if(!compact()||!changed) return;
+  const insp=sheets.get('insp'), tree=sheets.get('tree');
+  if(d.mode!=='session'){
+    if(sideMode()){ if(tree.detent!=='closed') reviewOpen('insp'); return; }          // a drawer: only ever replaces the Items drawer, never covers the stage unprompted
+    if(['menu','signal'].some(n=>sheets.get(n).detent!=='closed')) return;
+    if(tree.detent!=='closed') tree.set('closed');
+    if(insp.detent==='closed') insp.set('peek');
+  } else if(insp.detent==='peek') insp.set('closed');
+});
+window.addEventListener('aitken:session',(e)=>{
+  const on=!!(e.detail&&e.detail.loaded); document.body.toggleAttribute('data-has-session',on);
+  if(!on) sheets.forEach((s,n)=>{ if(REVIEW.includes(n)) s.set('closed'); });
+  else ['menu','signal'].forEach(n=>sheets.get(n).set('closed'));
+  updateDock();
+});
+
+/* =========================================================================
+   ATLAS: the sidebar becomes a bottom sheet, the detail card a second sheet in the same slot, and the controls that float over the map
+   ride above whichever sheet is showing. Same DOM as the laptop (nodes are re-parented, never cloned), so every Atlas id, listener and
+   piece of state keeps working, and everything is put back when the window grows.
+   ========================================================================= */
+const atlas=$('#atlas'), atSide=$('#atSide'), atCard=$('#atCard'), atCtl=$('#atCtl'), atAct=$('#atAct');
+const bottomMode=()=>compact()&&root.dataset.sheet==='bottom';
+const AT_PEEK=136, AT_CARD_PEEK=178;
+function restoreNode(node){ const ph=homes.get(node); if(ph&&ph.parentNode) ph.replaceWith(node); homes.delete(node); }
+
+/* how much of the map the sheet covers, published as --sv (a plain number: it only feeds transforms, so a drag never causes layout) */
+function publishVis(){
+  const s=(atCard.dataset.detent!=='closed')?sheets.get('atCard'):sheets.get('atSide');
+  let v=(bottomMode()&&s&&s.vis>0)?s.vis:0;
+  v=Math.min(v,atlas.clientHeight*.62);      // a full sheet hides the stack behind it instead of flinging it up under the search pill
+  atlas.style.setProperty('--sv',String(Math.round(v)));
+}
+const sideSheet=new Sheet(atSide,'atSide',{bottomOnly:true,detents:['peek','half','full'],initial:'peek',peek:AT_PEEK,half:.62,body:'.at-pages',
+  dragZones:':scope > .sheet-grab, :scope > .at-head, :scope > .at-tabs',onMove:publishVis,onChange:publishVis});
+const cardSheet=new Sheet(atCard,'atCard',{bottomOnly:true,detents:['closed','peek','half','full'],peek:AT_CARD_PEEK,half:.58,
+  delegate:true,dragHit:'.atc-head',body:'.atc-body',noDrag:'[data-card]',onMove:publishVis,
+  onChange:(s,d)=>{ if(d==='closed'&&atCard.classList.contains('on')){ const x=atCard.querySelector('[data-card="close"]'); if(x) x.click(); } publishVis(); }});   // swiping the card down = the ✕
+
+/* Atlas toggles #atCard.on / replaces its content; the shell follows. */
+let autoCollapsed=false;
+function atCardChanged(){
+  const on=atCard.classList.contains('on');
+  if(bottomMode()){
+    if(autoCollapsed){ atlas.classList.remove('side-collapsed'); autoCollapsed=false; }
+    atSide.classList.toggle('covered',on);
+    if(on){ if(cardSheet.detent==='closed') cardSheet.set('peek'); }
+    else if(cardSheet.detent!=='closed') cardSheet.set('closed');
+  } else {
+    atSide.classList.remove('covered');
+    if(compact()&&sideMode()){                                       // drawers: on a narrow screen the sidebar steps aside while a card is open (class only: the saved preference is untouched)
+      if(on&&window.innerWidth<1000&&!atlas.classList.contains('side-collapsed')){ atlas.classList.add('side-collapsed'); autoCollapsed=true; }
+      else if(!on&&autoCollapsed){ atlas.classList.remove('side-collapsed'); autoCollapsed=false; }
+    }
+  }
+  publishVis();
+}
+new MutationObserver(atCardChanged).observe(atCard,{attributes:true,attributeFilter:['class'],childList:true});
+
+/* what the map's fit / fly calls should treat as "visible": the screen minus the pills on top and the sheet underneath */
+function atlasInsets(hasSel){
+  if(!compact()) return null;
+  const H=atlas.clientHeight||600;
+  if(bottomMode()){
+    const cardUp=hasSel||atCard.classList.contains('on');
+    const vis=cardUp?Math.max(atCard.dataset.detent==='closed'?AT_CARD_PEEK:(cardSheet.vis||AT_CARD_PEEK),AT_CARD_PEEK):Math.max(sideSheet.vis||AT_PEEK,AT_PEEK);
+    return {left:16,right:16,top:112,bottom:Math.min(vis,H*.6)+16};
+  }
+  const sideOpen=!atlas.classList.contains('side-collapsed')&&!(hasSel&&window.innerWidth<1000);
+  return {left:sideOpen?Math.min(372,window.innerWidth*.5)+20:16,right:hasSel?Math.min(336,window.innerWidth*.46)+20:16,top:64,bottom:56};
+}
+
+function buildAtlas(){
+  const search=$('#atlas .at-search'), hud=$('#atHud'), legend=$('#atLegend');
+  if(bottomMode()){
+    adopt(search,atlas,atSide);                         // a pill floating over the map, above the sheet
+    adopt(hud,atSide,$('.at-tabs',atSide));             // the peek strip: the four numbers that say what the map is showing
+    adopt(legend,atCtl);                                // behind the key button
+  } else {
+    [search,hud,legend].forEach(restoreNode); atCtl.classList.remove('legend-open'); $('#atKey').setAttribute('aria-expanded','false');
+  }
+  closeRowMenu();
+  atCardChanged();
+}
+function refreshAtlasSheets(){ if(!sideSheet._d) sideSheet.refresh(); if(!cardSheet._d) cardSheet.refresh(); publishVis(); }
+{ let q=0; new ResizeObserver(()=>{ if(q) return; q=requestAnimationFrame(()=>{ q=0; refreshAtlasSheets(); }); }).observe(atlas); }   // soft keyboard, rotation, entering Atlas mode (display:none -> block)
+
+/* controls */
+$('#atKey').addEventListener('click',()=>{ const o=atCtl.classList.toggle('legend-open'); $('#atKey').setAttribute('aria-expanded',String(o)); });
+$('#atFit').addEventListener('click',()=>{ if(window.AitkenAtlas) AitkenAtlas.goRegion('__all'); });
+atlas.addEventListener('pointerdown',(e)=>{ if(atCtl.classList.contains('legend-open')&&!e.target.closest('#atCtl')){ atCtl.classList.remove('legend-open'); $('#atKey').setAttribute('aria-expanded','false'); } },true);
+$('#atSearch').addEventListener('focus',()=>{ if(bottomMode()&&!atCard.classList.contains('on')&&sideSheet.detent!=='peek') sideSheet.set('peek'); });   // keep the map and the results visible while typing
+
+/* choosing something that moves the map (an Index row, a region, "zoom to this ride") drops the sheet to its peek first, so the move is seen and
+   fitBBox measures the map that will actually be visible (capture phase: this runs before Atlas's own handler) */
+atSide.addEventListener('click',(e)=>{ if(bottomMode()&&e.target.closest('#atIdxList .at-row[data-i],.at-region,[data-act="zoom"]')) sideSheet.set('peek'); },true);
+
+/* ---- row action sheet: the same actions the laptop shows on hover, taken from the row itself so there is one implementation ---- */
+function closeRowMenu(){ atAct.classList.remove('on'); atAct.setAttribute('aria-hidden','true'); atAct.textContent=''; }
+function openRowMenu(row){
+  const list=row&&row.closest('.at-list'); if(!list) return;
+  const id=row.dataset.id, acts=$$('.at-racts [data-act]',row); if(!acts.length) return;
+  const box=document.createElement('div'); box.className='at-act-box at-glass'; box.setAttribute('role','menu');
+  const t=document.createElement('div'); t.className='at-act-title'; const nm=$('.at-rt .nm',row), sub=$('.at-rs',row);
+  t.textContent=nm?nm.textContent:'Actions'; if(sub){ const s=document.createElement('small'); s.textContent=sub.textContent; t.appendChild(s); } box.appendChild(t);
+  acts.forEach(a=>{
+    const b=document.createElement('button'); b.type='button'; b.setAttribute('role','menuitem'); if(a.dataset.act==='del') b.className='danger';
+    const ic=document.createElement('span'); ic.className='ic'; ic.textContent=a.textContent.trim(); const lb=document.createElement('span'); lb.textContent=a.title||a.dataset.act; b.append(ic,lb);
+    b.addEventListener('click',()=>{ closeRowMenu(); const live=list.querySelector('.at-row[data-id="'+CSS.escape(id)+'"] [data-act="'+a.dataset.act+'"]'); if(live) live.click(); });   // the row may have been re-rendered since: find its live button
+    box.appendChild(b);
+  });
+  const c=document.createElement('button'); c.type='button'; c.className='cancel'; c.textContent='Cancel'; c.addEventListener('click',closeRowMenu); box.appendChild(c);
+  const sc=document.createElement('div'); sc.className='at-act-scrim'; sc.addEventListener('click',closeRowMenu);
+  atAct.textContent=''; atAct.append(sc,box); atAct.classList.add('on'); atAct.setAttribute('aria-hidden','false'); haptic(6);
+  const first=box.querySelector('button'); if(first) first.focus({preventScroll:true});
+}
+['#atSessList','#atSrcList'].forEach(sel=>{ const l=$(sel); if(l) l.addEventListener('click',(e)=>{ const k=e.target.closest('.at-kebab'); if(k) openRowMenu(k.closest('.at-row')); }); });
+document.addEventListener('keydown',(e)=>{ if(e.key==='Escape'&&atAct.classList.contains('on')){ e.stopPropagation(); closeRowMenu(); } },true);
+
+
+window.AitkenShell={ Sheet, Sheets, adopt, restoreAll, reviewOpen, haptic, applyLayout, atlasInsets, keepCardContent:bottomMode };
+applyLayout();
 })();
 </script>
 </body>
