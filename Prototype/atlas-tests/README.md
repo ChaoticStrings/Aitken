@@ -1,7 +1,7 @@
 # Atlas tests
 
 Real-browser tests for **Atlas**, the multi-session map mode of `Prototype/workbench.html`.
-They load the actual page in Chrome, drive it with real mouse/keyboard events, and check what is
+They load the actual page in Chrome, drive it with real mouse/keyboard and CDP touch events, and check what is
 drawn on the canvas, what is stored in SQLite, and what survives a close-and-reopen.
 
 ```
@@ -25,6 +25,18 @@ reader to prove the exported file is a genuine SQLite database; suite 08 also ru
 | 06-file-db-and-review | database in a user-chosen file (real `FileSystemFileHandle` via OPFS), newer-file-wins, unlink; Review mode regression |
 | 07-guards | second-tab warning, `javascript:` links and HTML in dataset fields are inert |
 | 08-datasets | runs the real converter (`Datasets/tools/make_packs.py`) on its fictional fixtures and imports the packs: blue/purple split incl. `unlocated`, Index rows for every contractor on a multi-award road, award cards, focus, search, provenance (retrieved/notes), hostile and oversized awards, persistence across a reload |
+| 09-mobile-atlas | 390×844 touch: sheet detents and scroll hand-off, flick-vs-tap and long-press paint selection, row action menu, card dismissal, uncovered-map fitting, real map pan/pinch, local search tap-vs-scroll; landscape and desktop restoration, A–Z navigation in both layouts, tablet portrait/light theme |
+| 10-mobile-review | the real trimmed ride on touch: Items native scrolling on a short phone, sheet dragging and scroll hand-off, More/Signal scrims and Add popover, waveform pan/pinch without data edits, tap and long-press selection, phone rotation, tablet and desktop restoration |
+
+The mobile suites use Chromium's DevTools `Input.dispatchTouchEvent`, not synthetic DOM events.
+They wait for compositor flings to settle before tapping, and only measure `content-visibility:auto`
+row contents once visible. Search assertions use imported records; the external place-search option
+is deliberately not treated as a local result. Console errors remain test failures.
+
+Run just the mobile suites with `npm test -- 09 10`. Browser emulation does **not** validate iOS Safari,
+real safe-area insets, an actual soft keyboard, high-refresh hardware, or native Android long-press
+menus. Real-device checks and a large real-corpus performance benchmark are still necessary;
+headless Chromium and generated rides cannot establish phone frame-rate or power improvements.
 
 `PACKS=<folder> node check-packs.mjs` (not part of `npm test`) imports real packs made by `Datasets/tools/make_packs.py` and reconciles
 what Atlas draws and stores with the converter's `MANIFEST.json`.

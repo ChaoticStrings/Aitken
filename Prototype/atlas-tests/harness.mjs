@@ -23,10 +23,11 @@ const LIVE=[];
 /** close every browser this process launched (otherwise orphaned Chrome processes outlive the test and hold its stdout open) */
 export async function shutdown(){ for(const c of LIVE.splice(0)){ try{ const b=c.browser(); await c.close(); if(b) await b.close(); }catch(e){} } }
 export function serve(port=8765){ const srv=http.createServer((q,r)=>{ const f=PAGE_ROOT+decodeURIComponent(q.url.split('?')[0]); if(fs.existsSync(f)&&fs.statSync(f).isFile()){ r.writeHead(200,{'Content-Type':f.endsWith('.html')?'text/html':'application/octet-stream'}); fs.createReadStream(f).pipe(r);} else { r.writeHead(404); r.end(); } }); return new Promise(res=>srv.listen(port,()=>res(srv))); }
-export async function launch({tilesLog,overpass,userData}={}){
+/** ctxOpts: extra Playwright context options, e.g. a phone: {viewport:{width:390,height:844},hasTouch:true,isMobile:true,deviceScaleFactor:3} */
+export async function launch({tilesLog,overpass,userData,ctxOpts}={}){
   const lo={headless:true,args:['--no-sandbox'],...(CHROME?{executablePath:CHROME}:{channel:'chrome'})};
-  const ctx = userData ? await chromium.launchPersistentContext(userData,{...lo,viewport:{width:1500,height:900},acceptDownloads:true})
-                       : await (await chromium.launch(lo)).newContext({viewport:{width:1500,height:900},acceptDownloads:true});
+  const ctx = userData ? await chromium.launchPersistentContext(userData,{...lo,viewport:{width:1500,height:900},acceptDownloads:true,...(ctxOpts||{})})
+                       : await (await chromium.launch(lo)).newContext({viewport:{width:1500,height:900},acceptDownloads:true,...(ctxOpts||{})});
   await ctx.route('**/*',async(route)=>{
     const u=route.request().url();
     const ok=(f,type)=>route.fulfill({status:200,contentType:type,body:fs.readFileSync(f)});
