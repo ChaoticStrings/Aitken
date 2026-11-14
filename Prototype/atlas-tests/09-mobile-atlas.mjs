@@ -185,7 +185,9 @@ for(const [width,height,touch] of [[1500,900,false],[390,844,true]]){
   if(touch){ await T.tap(5,60); await setSide('full'); }
   await page.locator('#atTabs [data-tab=index]').click(); await settle(500);
   await ev(()=>{ document.querySelector('.at-page[data-page=index]').scrollTop=0; });
-  await page.locator('#atAZ [data-l=Z]').click(); await settle(1000);
+  await page.locator('#atAZ [data-l=Z]').click();
+  // smooth scrolling takes longer on a slow machine: wait until the scroller stops moving instead of a fixed delay
+  await page.waitForFunction(()=>{ const p=document.querySelector('.at-page[data-page=index]'); const t=p.scrollTop; const prev=window.__azPrev; window.__azPrev=t; return prev===t&&t>0; },null,{polling:250,timeout:15000}); await ev(()=>{ window.__azPrev=undefined; });
   const az=await ev(()=>{ const p=document.querySelector('.at-page[data-page=index]'),r=p.getBoundingClientRect(),h=document.getElementById('idx-Z').getBoundingClientRect(); return {scroll:p.scrollTop,top:h.top,bottom:h.bottom,pageTop:r.top,pageBottom:r.bottom}; });
   c(`${width}x${height}: Z scrolls the Index page to a visible letter heading`,az.scroll>0&&az.top>=az.pageTop-2&&az.bottom<=az.pageBottom+2,az);
 }

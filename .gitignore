@@ -51,3 +51,4 @@ session_*/
 /.idea/
 *.logcat
 *.log
+.toolchain/
