@@ -5751,7 +5751,10 @@ function renderIndex(){
 function bindIndex(){
   $('#atIdxSeg').addEventListener('click',(e)=>{ const b=e.target.closest('button[data-k]'); if(!b) return; Prefs.idxTab=b.dataset.k; savePrefs(); renderIndex(); });
   $('#atIdxList').addEventListener('click',(e)=>{ const r=e.target.closest('.at-row[data-i]'); if(r&&idxFns[+r.dataset.i]) idxFns[+r.dataset.i](); });
-  $('#atAZ').addEventListener('click',(e)=>{ const b=e.target.closest('button[data-l]'); if(!b) return; const h=$('#idx-'+(b.dataset.l==='#'?'num':b.dataset.l)); if(h) h.scrollIntoView({block:'start',inline:'nearest',behavior:'smooth'}); });
+  $('#atAZ').addEventListener('click',(e)=>{ const b=e.target.closest('button[data-l]'); if(!b) return; const h=$('#idx-'+(b.dataset.l==='#'?'num':b.dataset.l)); if(!h) return;
+    /* scroll ONLY the Index page: scrollIntoView() also scrolls overflow:hidden ancestors, which shifted the whole sidebar up by ~100px */
+    const pg=h.closest('.at-page'); if(!pg) return; const top=pg.scrollTop+h.getBoundingClientRect().top-pg.getBoundingClientRect().top;
+    pg.scrollTo({top:Math.max(0,top),behavior:'smooth'}); });
 }
 
 /* ----- regions ----- */
